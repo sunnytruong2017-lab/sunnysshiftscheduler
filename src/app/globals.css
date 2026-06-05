@@ -57,3 +57,59 @@ body {
 }
 
 .mono { font-family: 'DM Mono', monospace; }
+
+/* ── Mobile bottom sheet ── */
+.bottom-sheet-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+  z-index: 200; display: flex; align-items: flex-end;
+  backdrop-filter: blur(2px);
+}
+.bottom-sheet {
+  background: var(--surface); border-radius: 20px 20px 0 0;
+  width: 100%; max-height: 90vh; overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+  animation: slideUp 0.25s ease;
+}
+.bottom-sheet-handle {
+  width: 36px; height: 4px; border-radius: 2px;
+  background: var(--border); margin: 12px auto 4px; flex-shrink: 0;
+}
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* ── Mobile nav bar ── */
+.mobile-nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: calc(60px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--surface); border-top: 1px solid var(--border);
+  display: flex; align-items: flex-start; justify-content: space-around;
+  padding-top: 8px; z-index: 100;
+}
+.mobile-nav-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: none; border: none; cursor: pointer; color: var(--text-3);
+  font-family: inherit; font-size: 10px; font-weight: 500; padding: 0 16px;
+  transition: color 0.15s;
+}
+.mobile-nav-btn.active { color: var(--accent); }
+
+/* ── Mobile calendar ── */
+.mobile-cal-grid {
+  display: grid; grid-template-columns: repeat(7,1fr); gap: 1px;
+  background: var(--border); border-radius: 12px; overflow: hidden;
+}
+.mobile-cal-cell {
+  background: var(--surface); min-height: 54px; padding: 5px 4px 4px;
+  cursor: pointer; transition: background 0.1s; position: relative;
+}
+.mobile-cal-cell:active { background: var(--surface2); }
+.mobile-cal-cell.out-of-month { opacity: 0.3; cursor: default; }
+
+/* ── Misc mobile ── */
+.mobile-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 7px; border-radius: 20px; font-size: 11px; font-weight: 600;
+}
