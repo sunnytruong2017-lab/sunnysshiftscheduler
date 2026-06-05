@@ -1,11 +1,5 @@
 {
   "framework": "nextjs",
   "buildCommand": "next build",
-  "outputDirectory": ".next",
-  "env": {
-    "NOTION_TOKEN": "@notion_token",
-    "NOTION_EMPLOYEES_DB": "@notion_employees_db",
-    "NOTION_TIMESLOTS_DB": "@notion_timeslots_db",
-    "NOTION_SHIFTS_DB": "@notion_shifts_db"
-  }
+  "outputDirectory": ".next"
 }
