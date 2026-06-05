@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --bg: #f7f6f3;
+  --surface: #ffffff;
+  --surface2: #f0efe9;
+  --border: #e2e0d8;
+  --text: #1a1917;
+  --text-2: #6b6860;
+  --text-3: #9b9890;
+  --accent: #2d6a4f;
+  --accent-light: #d8f3dc;
+  --accent-hover: #1b4332;
+  --danger: #c0392b;
+  --danger-light: #fdecea;
+  --chip-1: #e8f4f8; --chip-1-text: #1a6b8a;
+  --chip-2: #fef3cd; --chip-2-text: #856404;
+  --chip-3: #fde8d8; --chip-3-text: #8c4a2f;
+  --chip-4: #e8e4f8; --chip-4-text: #4a3a8c;
+  --chip-5: #fde8f0; --chip-5-text: #8c3a5c;
+  --chip-6: #e4f8e8; --chip-6-text: #2d6a3a;
+}
+
+.dark {
+  --bg: #111110;
+  --surface: #1c1c1a;
+  --surface2: #242422;
+  --border: #2e2e2b;
+  --text: #f0ede8;
+  --text-2: #8a8780;
+  --text-3: #5a5854;
+  --accent: #52b788;
+  --accent-light: #1a3d2b;
+  --accent-hover: #74c69d;
+  --danger: #e74c3c;
+  --danger-light: #2d1a1a;
+  --chip-1: #1a3040; --chip-1-text: #7ec8e3;
+  --chip-2: #2d2510; --chip-2-text: #f0c040;
+  --chip-3: #2d1c10; --chip-3-text: #e8906a;
+  --chip-4: #1c1830; --chip-4-text: #a090e0;
+  --chip-5: #2d1820; --chip-5-text: #e088b0;
+  --chip-6: #182d1c; --chip-6-text: #70c880;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  transition: background 0.2s, color 0.2s;
+  margin: 0;
+}
+
+.mono { font-family: 'DM Mono', monospace; }
