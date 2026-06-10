@@ -17,6 +17,51 @@ type ViewMode = "month" | "week";
 
 const ROLES = ["Server", "Cook"] as const;
 
+const PRESET_COLORS = [
+  { name: "Red",    value: "#ef4444" },
+  { name: "Orange", value: "#f97316" },
+  { name: "Amber",  value: "#f59e0b" },
+  { name: "Yellow", value: "#eab308" },
+  { name: "Lime",   value: "#84cc16" },
+  { name: "Green",  value: "#22c55e" },
+  { name: "Teal",   value: "#14b8a6" },
+  { name: "Cyan",   value: "#06b6d4" },
+  { name: "Blue",   value: "#3b82f6" },
+  { name: "Violet", value: "#8b5cf6" },
+  { name: "Pink",   value: "#ec4899" },
+  { name: "Rose",   value: "#f43f5e" },
+];
+
+// Color picker component — presets + optional custom
+function ColorPicker({ value, onChange }: { value: string; onChange: (c:string)=>void }) {
+  const [showCustom, setShowCustom] = useState(false);
+  const isPreset = PRESET_COLORS.some(c=>c.value===value);
+  return (
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:6}}>
+        {PRESET_COLORS.map(c=>(
+          <button key={c.value} title={c.name} onClick={()=>onChange(c.value)} style={{
+            width:26,height:26,borderRadius:"50%",background:c.value,border:`2.5px solid ${value===c.value?"var(--text)":"transparent"}`,
+            cursor:"pointer",padding:0,transition:"border-color 0.1s",flexShrink:0,
+          }}/>
+        ))}
+        <button onClick={()=>setShowCustom(v=>!v)} title="Custom color" style={{
+          width:26,height:26,borderRadius:"50%",border:`2px dashed ${showCustom||!isPreset?"var(--text-2)":"var(--border)"}`,
+          background:"conic-gradient(red,yellow,lime,cyan,blue,magenta,red)",
+          cursor:"pointer",padding:0,flexShrink:0,opacity:0.8,
+        }}/>
+      </div>
+      {(showCustom||!isPreset) && (
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4}}>
+          <input type="color" value={value} onChange={e=>onChange(e.target.value)}
+            style={{width:36,height:32,borderRadius:8,border:"1px solid var(--border)",background:"none",cursor:"pointer",padding:2}}/>
+          <span style={{fontSize:12,color:"var(--text-2)",fontFamily:"monospace"}}>{value}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // hex → rgba helper for tinted backgrounds
 function hexToRgba(hex: string, alpha: number) {
   const r = parseInt(hex.slice(1,3),16);
@@ -142,29 +187,38 @@ function useSchedulerData(startDate: string, endDate: string) {
   return { employees, timeSlots, shifts, loading, fetchAll, addEmployee, removeEmployee, saveSlot, removeSlot, addShifts, updateShift, deleteShift, shiftsForDay };
 }
 
-// ─── Role section inside a day cell ───────────────────────────
-function RoleSection({ label, shifts, compact }: { label: string; shifts: Shift[]; compact?: boolean }) {
-  const h = compact ? 20 : 26;
+// ─── Role column inside a day cell (used in side-by-side layout) ─
+function RoleColumn({ label, shifts, compact }: { label: string; shifts: Shift[]; compact?: boolean }) {
+  const h = compact ? 18 : 24;
   return (
-    <div style={{flex:1,minWidth:0,borderTop:"1px solid var(--border)",paddingTop:2}}>
-      <div style={{fontSize:9,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:2,paddingLeft:3}}>{label}</div>
-      <div style={{display:"flex",flexDirection:"column",gap:1}}>
-        {shifts.length===0
-          ? <div style={{height:compact?10:12}}/>
-          : shifts.slice(0, compact?2:3).map(s=>(
-              <div key={s.id} style={{
-                height:h, lineHeight:`${h}px`, padding:"0 4px", borderRadius:3,
-                background: hexToRgba(s.timeSlotColor, 0.18),
-                borderLeft:`3px solid ${s.timeSlotColor}`,
-                fontSize:10, fontWeight:600, color:"var(--text)",
-                whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-              }}>
-                {s.employeeName}
-              </div>
-            ))
-        }
-        {shifts.length > (compact?2:3) && <div style={{fontSize:9,color:"var(--text-3)",paddingLeft:3}}>+{shifts.length-(compact?2:3)}</div>}
-      </div>
+    <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:1,padding:"0 2px"}}>
+      <div style={{fontSize:8,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",marginBottom:1}}>{label}</div>
+      {shifts.length===0
+        ? <div style={{height:compact?10:12}}/>
+        : shifts.slice(0, compact?2:3).map(s=>(
+            <div key={s.id} style={{
+              height:h, lineHeight:`${h}px`, padding:"0 3px", borderRadius:3,
+              background: hexToRgba(s.timeSlotColor, 0.18),
+              borderLeft:`3px solid ${s.timeSlotColor}`,
+              fontSize:9, fontWeight:600, color:"var(--text)",
+              whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+            }}>
+              {s.employeeName}
+            </div>
+          ))
+      }
+      {shifts.length > (compact?2:3) && <div style={{fontSize:8,color:"var(--text-3)"}}>{`+${shifts.length-(compact?2:3)}`}</div>}
+    </div>
+  );
+}
+
+// ─── Two-column Server|Cook row for a cell ────────────────────
+function RoleSplit({ servers, cooks, compact }: { servers: Shift[]; cooks: Shift[]; compact?: boolean }) {
+  return (
+    <div style={{display:"flex",flex:1,minWidth:0,gap:0,marginTop:2}}>
+      <RoleColumn label="Server" shifts={servers} compact={compact}/>
+      <div style={{width:1,background:"var(--border)",flexShrink:0,alignSelf:"stretch"}}/>
+      <RoleColumn label="Cook" shifts={cooks} compact={compact}/>
     </div>
   );
 }
@@ -187,11 +241,9 @@ function DayDetail({
           <div style={{fontSize:13,color:"var(--text-2)"}}>{format(day,"MMMM d, yyyy")}</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {isManager && (
-            <button onClick={onCreateShift} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-              <Icon.plus/> Create Shift
-            </button>
-          )}
+          <button onClick={onCreateShift} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            <Icon.plus/> Create Shift
+          </button>
           <button className="icon-btn" onClick={onClose}><Icon.x/></button>
         </div>
       </div>
@@ -428,8 +480,7 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
         <div style={{display:"flex",justifyContent:"flex-end",marginBottom:2}}>
           <span style={{fontSize:11,fontWeight:isToday?700:400,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)"}}>{format(day,"d")}</span>
         </div>
-        <RoleSection label="Server" shifts={servers} compact/>
-        <RoleSection label="Cook"   shifts={cooks}   compact/>
+        <RoleSplit servers={servers} cooks={cooks} compact/>
       </div>
     );
   };
@@ -452,8 +503,7 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
           <div style={{fontSize:10,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.5px"}}>{format(day,"EEE")}</div>
           <div style={{width:26,height:26,borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:isToday?700:500,margin:"2px auto 0"}}>{format(day,"d")}</div>
         </div>
-        <RoleSection label="Server" shifts={servers}/>
-        <RoleSection label="Cook"   shifts={cooks}/>
+        <RoleSplit servers={servers} cooks={cooks}/>
       </div>
     );
   };
@@ -593,10 +643,9 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
                   style={{flex:"0 0 105px",padding:"8px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text)",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
                 <input type="time" value={newSlot.endTime} onChange={e=>setNewSlot({...newSlot,endTime:e.target.value})}
                   style={{flex:"0 0 105px",padding:"8px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text)",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <input type="color" value={newSlot.color} onChange={e=>setNewSlot({...newSlot,color:e.target.value})}
-                    style={{width:36,height:34,borderRadius:8,border:"1px solid var(--border)",background:"none",cursor:"pointer",padding:2}}/>
-                  <span style={{fontSize:12,color:"var(--text-2)",fontFamily:"monospace"}}>{newSlot.color}</span>
+                <div style={{flex:"1 1 100%",marginTop:4}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"var(--text-3)",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Color</div>
+                  <ColorPicker value={newSlot.color} onChange={c=>setNewSlot({...newSlot,color:c})}/>
                 </div>
                 <button onClick={async()=>{await data.saveSlot(newSlot,editingSlot?.id);setEditingSlot(null);setNewSlot({label:"",startTime:"09:00",endTime:"17:00",color:"#6366f1"});}} disabled={data.loading||!newSlot.label.trim()}
                   style={{padding:"8px 14px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,opacity:(!newSlot.label.trim()||data.loading)?0.5:1,fontFamily:"inherit"}}>
@@ -757,16 +806,7 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
                     <div style={{display:"flex",justifyContent:"center",marginBottom:1}}>
                       <span style={{fontSize:10,fontWeight:isToday?700:400,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)"}}>{format(day,"d")}</span>
                     </div>
-                    <div style={{borderTop:"1px solid var(--border)",paddingTop:1}}>
-                      <div style={{fontSize:7,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.3px",paddingLeft:2}}>Srv</div>
-                      {servers.slice(0,1).map(s=><div key={s.id} style={{height:10,borderRadius:2,background:hexToRgba(s.timeSlotColor,0.25),borderLeft:`2px solid ${s.timeSlotColor}`,fontSize:7,fontWeight:600,color:"var(--text)",paddingLeft:2,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{s.employeeName}</div>)}
-                      {servers.length>1&&<div style={{fontSize:7,color:"var(--text-3)",paddingLeft:2}}>+{servers.length-1}</div>}
-                    </div>
-                    <div style={{borderTop:"1px solid var(--border)",paddingTop:1}}>
-                      <div style={{fontSize:7,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.3px",paddingLeft:2}}>Cook</div>
-                      {cooks.slice(0,1).map(s=><div key={s.id} style={{height:10,borderRadius:2,background:hexToRgba(s.timeSlotColor,0.25),borderLeft:`2px solid ${s.timeSlotColor}`,fontSize:7,fontWeight:600,color:"var(--text)",paddingLeft:2,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{s.employeeName}</div>)}
-                      {cooks.length>1&&<div style={{fontSize:7,color:"var(--text-3)",paddingLeft:2}}>+{cooks.length-1}</div>}
-                    </div>
+                    <RoleSplit servers={servers} cooks={cooks} compact/>
                   </div>
                 );
               })}
@@ -788,30 +828,7 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
                       <div style={{fontSize:9,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.3px"}}>{format(day,"EEE")}</div>
                       <div style={{width:22,height:22,borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:isToday?700:500,margin:"2px auto 0"}}>{format(day,"d")}</div>
                     </div>
-                    {/* Server section */}
-                    <div style={{borderTop:"1px solid var(--border)",paddingTop:3,flex:1}}>
-                      <div style={{fontSize:8,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",marginBottom:2,paddingLeft:2}}>Server</div>
-                      <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                        {servers.length===0&&<div style={{height:14}}/>}
-                        {servers.map(s=>(
-                          <div key={s.id} style={{padding:"2px 4px",borderRadius:4,background:hexToRgba(s.timeSlotColor,0.15),borderLeft:`3px solid ${s.timeSlotColor}`,fontSize:9,fontWeight:600,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                            {s.employeeName}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    {/* Cook section */}
-                    <div style={{borderTop:"1px solid var(--border)",paddingTop:3,flex:1}}>
-                      <div style={{fontSize:8,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",marginBottom:2,paddingLeft:2}}>Cook</div>
-                      <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                        {cooks.length===0&&<div style={{height:14}}/>}
-                        {cooks.map(s=>(
-                          <div key={s.id} style={{padding:"2px 4px",borderRadius:4,background:hexToRgba(s.timeSlotColor,0.15),borderLeft:`3px solid ${s.timeSlotColor}`,fontSize:9,fontWeight:600,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                            {s.employeeName}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <RoleSplit servers={servers} cooks={cooks}/>
                   </div>
                 );
               })}
@@ -964,11 +981,9 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
                       style={{width:"100%",padding:"12px",borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text)",fontSize:14,fontFamily:"inherit",outline:"none"}}/>
                   </div>
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:12}}>
-                  <div style={{fontSize:11,color:"var(--text-3)",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px"}}>Color</div>
-                  <input type="color" value={newSlot.color} onChange={e=>setNewSlot({...newSlot,color:e.target.value})}
-                    style={{width:44,height:40,borderRadius:10,border:"1px solid var(--border)",background:"none",cursor:"pointer",padding:2}}/>
-                  <span style={{fontSize:13,color:"var(--text-2)",fontFamily:"monospace"}}>{newSlot.color}</span>
+                <div>
+                  <div style={{fontSize:11,color:"var(--text-3)",marginBottom:8,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px"}}>Color</div>
+                  <ColorPicker value={newSlot.color} onChange={c=>setNewSlot({...newSlot,color:c})}/>
                 </div>
               </div>
               <button onClick={async()=>{await data.saveSlot(newSlot,editingSlot?.id);setEditingSlot(null);setNewSlot({label:"",startTime:"09:00",endTime:"17:00",color:"#6366f1"});closeSheet();}}
