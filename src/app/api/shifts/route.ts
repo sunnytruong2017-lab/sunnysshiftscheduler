@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     const slotMap = Object.fromEntries(timeSlots.map(s  => [s.id, s]));
     return NextResponse.json(shifts.map(s => ({
       ...s,
-      employeeName:  empMap[s.employeeId]        ?? "Unknown",
+      employeeName:  empMap[s.employeeId]             ?? "Unknown",
       timeSlotLabel: slotMap[s.timeSlotId]?.label     ?? "",
       timeSlotStart: slotMap[s.timeSlotId]?.startTime ?? "",
       timeSlotEnd:   slotMap[s.timeSlotId]?.endTime   ?? "",
