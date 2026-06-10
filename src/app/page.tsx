@@ -548,12 +548,14 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
                 viewMode={viewMode} setViewMode={setViewMode}
                 onExportXLSX={exportXLSX} onExportICal={exportICal} isMobile={false}/>
 
-              {/* Day headers */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
-                {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
-                  <div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"var(--text-3)",padding:"4px 0",letterSpacing:"0.5px",textTransform:"uppercase"}}>{d}</div>
-                ))}
-              </div>
+              {/* Day headers — month view only (week cells render their own labels) */}
+              {viewMode==="month" && (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
+                  {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
+                    <div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"var(--text-3)",padding:"4px 0",letterSpacing:"0.5px",textTransform:"uppercase"}}>{d}</div>
+                  ))}
+                </div>
+              )}
 
               {viewMode==="month" && (
                 <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:12,overflow:"hidden"}}>
@@ -784,12 +786,14 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
             viewMode={viewMode} setViewMode={setViewMode}
             onExportXLSX={exportXLSX} onExportICal={exportICal} isMobile={true}/>
 
-          {/* Day headers */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:3}}>
-            {["S","M","T","W","T","F","S"].map((d,i)=>(
-              <div key={i} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"var(--text-3)",padding:"3px 0"}}>{d}</div>
-            ))}
-          </div>
+          {/* Day headers — month view only */}
+          {viewMode==="month" && (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:3}}>
+              {["S","M","T","W","T","F","S"].map((d,i)=>(
+                <div key={i} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"var(--text-3)",padding:"3px 0"}}>{d}</div>
+              ))}
+            </div>
+          )}
 
           {/* Monthly view */}
           {viewMode==="month" && (
