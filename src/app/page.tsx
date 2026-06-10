@@ -130,7 +130,7 @@ function PasswordModal({ onSuccess, onCancel }: { onSuccess: ()=>void; onCancel:
   );
 }
 
-// ─── Shared data hook ─────────────────────────────────────────
+// ─── Shared data hook — optimistic updates ───────────────────
 function useSchedulerData(startDate: string, endDate: string) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
@@ -143,27 +143,65 @@ function useSchedulerData(startDate: string, endDate: string) {
       fetch("/api/timeslots"),
       fetch(`/api/shifts?start=${startDate}&end=${endDate}`),
     ]);
-    setEmployees(await eR.json());
-    setTimeSlots(await sR.json());
-    setShifts(await shR.json());
+    const [emps, slots, shs] = await Promise.all([eR.json(), sR.json(), shR.json()]);
+    setEmployees(emps);
+    setTimeSlots(slots);
+    setShifts(sortShifts(shs, slots));
   }, [startDate, endDate]);
 
   useEffect(()=>{ fetchAll(); },[fetchAll]);
 
-  const addEmployee    = async (name: string) => { setLoading(true); await fetch("/api/employees",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name})}); await fetchAll(); setLoading(false); };
-  const removeEmployee = async (id: string)   => { await fetch("/api/employees",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}); await fetchAll(); };
+  // Sort by timeSlotStart ascending
+  function sortShifts(shs: Shift[], slots: TimeSlot[]) {
+    return [...shs].sort((a,b)=>{
+      const ta = a.timeSlotStart || slots.find(s=>s.id===a.timeSlotId)?.startTime || "00:00";
+      const tb = b.timeSlotStart || slots.find(s=>s.id===b.timeSlotId)?.startTime || "00:00";
+      return ta.localeCompare(tb);
+    });
+  }
+
+  const tempId = () => `temp-${Math.random().toString(36).slice(2)}`;
+
+  const addEmployee = async (name: string) => {
+    setLoading(true);
+    await fetch("/api/employees",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name})});
+    await fetchAll(); setLoading(false);
+  };
+  const removeEmployee = async (id: string) => {
+    setEmployees(es=>es.filter(e=>e.id!==id));
+    await fetch("/api/employees",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    await fetchAll();
+  };
 
   const saveSlot = async (slot: Omit<TimeSlot,"id">, editId?: string) => {
     setLoading(true);
-    if (editId) await fetch("/api/timeslots",{method:"PUT",  headers:{"Content-Type":"application/json"},body:JSON.stringify({id:editId,...slot})});
-    else        await fetch("/api/timeslots",{method:"POST", headers:{"Content-Type":"application/json"},body:JSON.stringify(slot)});
+    if (editId) {
+      setTimeSlots(ts=>ts.map(t=>t.id===editId?{...t,...slot}:t));
+      await fetch("/api/timeslots",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:editId,...slot})});
+    } else {
+      await fetch("/api/timeslots",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(slot)});
+    }
     await fetchAll(); setLoading(false);
   };
-  const removeSlot = async (id: string) => { await fetch("/api/timeslots",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}); await fetchAll(); };
+  const removeSlot = async (id: string) => {
+    setTimeSlots(ts=>ts.filter(t=>t.id!==id));
+    await fetch("/api/timeslots",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    await fetchAll();
+  };
 
   const addShifts = async (empIds: string[], date: string, slotId: string, role: string) => {
     setLoading(true);
     const slot = timeSlots.find(s=>s.id===slotId);
+    // Optimistic: add temp shifts immediately
+    const tempShifts: Shift[] = empIds.map(empId => {
+      const emp = employees.find(e=>e.id===empId);
+      return {
+        id: tempId(), date, employeeId: empId, employeeName: emp?.name??"",
+        timeSlotId: slotId, timeSlotLabel: slot?.label??"", timeSlotStart: slot?.startTime??"",
+        timeSlotEnd: slot?.endTime??"", timeSlotColor: slot?.color??"#6366f1", role: role as "Server"|"Cook",
+      };
+    });
+    setShifts(ss=>sortShifts([...ss,...tempShifts], timeSlots));
     await Promise.all(empIds.map(empId => {
       const emp = employees.find(e=>e.id===empId);
       return fetch("/api/shifts",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -176,12 +214,21 @@ function useSchedulerData(startDate: string, endDate: string) {
     setLoading(true);
     const emp  = employees.find(e=>e.id===empId);
     const slot = timeSlots.find(s=>s.id===slotId);
+    // Optimistic update
+    setShifts(ss=>sortShifts(ss.map(s=>s.id===id?{...s,employeeId:empId,employeeName:emp?.name??s.employeeName,
+      timeSlotId:slotId,timeSlotLabel:slot?.label??s.timeSlotLabel,timeSlotStart:slot?.startTime??s.timeSlotStart,
+      timeSlotEnd:slot?.endTime??s.timeSlotEnd,timeSlotColor:slot?.color??s.timeSlotColor,role:role as "Server"|"Cook"}:s), timeSlots));
     await fetch("/api/shifts",{method:"PATCH",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({id,employeeId:empId,employeeName:emp?.name??"",date,timeSlotId:slotId,timeSlotLabel:slot?.label??"",role})});
     await fetchAll(); setLoading(false);
   };
 
-  const deleteShift = async (id: string) => { await fetch("/api/shifts",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}); await fetchAll(); };
+  const deleteShift = async (id: string) => {
+    setShifts(ss=>ss.filter(s=>s.id!==id)); // optimistic remove
+    await fetch("/api/shifts",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    await fetchAll();
+  };
+
   const shiftsForDay = (day: Date) => shifts.filter(s=>s.date===format(day,"yyyy-MM-dd"));
 
   return { employees, timeSlots, shifts, loading, fetchAll, addEmployee, removeEmployee, saveSlot, removeSlot, addShifts, updateShift, deleteShift, shiftsForDay };
@@ -189,13 +236,14 @@ function useSchedulerData(startDate: string, endDate: string) {
 
 // ─── Role column inside a day cell (used in side-by-side layout) ─
 function RoleColumn({ label, shifts, compact }: { label: string; shifts: Shift[]; compact?: boolean }) {
-  const h = compact ? 18 : 24;
+  const h = compact ? 18 : 22;
+  const displayed = compact ? shifts.slice(0,2) : shifts; // week cells show all
   return (
     <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:1,padding:"0 2px"}}>
       <div style={{fontSize:8,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",marginBottom:1}}>{label}</div>
-      {shifts.length===0
+      {displayed.length===0
         ? <div style={{height:compact?10:12}}/>
-        : shifts.slice(0, compact?2:3).map(s=>(
+        : displayed.map(s=>(
             <div key={s.id} style={{
               height:h, lineHeight:`${h}px`, padding:"0 3px", borderRadius:3,
               background: hexToRgba(s.timeSlotColor, 0.18),
@@ -207,7 +255,7 @@ function RoleColumn({ label, shifts, compact }: { label: string; shifts: Shift[]
             </div>
           ))
       }
-      {shifts.length > (compact?2:3) && <div style={{fontSize:8,color:"var(--text-3)"}}>{`+${shifts.length-(compact?2:3)}`}</div>}
+      {compact && shifts.length > 2 && <div style={{fontSize:8,color:"var(--text-3)"}}>{`+${shifts.length-2}`}</div>}
     </div>
   );
 }
@@ -414,10 +462,10 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
 
   const rangeStart = viewMode==="month"
     ? format(startOfMonth(anchor),"yyyy-MM-dd")
-    : format(startOfWeek(anchor,{weekStartsOn:0}),"yyyy-MM-dd");
+    : format(startOfWeek(anchor,{weekStartsOn:1}),"yyyy-MM-dd");
   const rangeEnd = viewMode==="month"
     ? format(endOfMonth(anchor),"yyyy-MM-dd")
-    : format(endOfWeek(anchor,{weekStartsOn:0}),"yyyy-MM-dd");
+    : format(endOfWeek(anchor,{weekStartsOn:1}),"yyyy-MM-dd");
 
   const data = useSchedulerData(rangeStart, rangeEnd);
 
@@ -430,19 +478,19 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
 
   // Calendar days
   const monthDays = eachDayOfInterval({
-    start: startOfWeek(startOfMonth(anchor),{weekStartsOn:0}),
-    end:   endOfWeek(endOfMonth(anchor),{weekStartsOn:0}),
+    start: startOfWeek(startOfMonth(anchor),{weekStartsOn:1}),
+    end:   endOfWeek(endOfMonth(anchor),{weekStartsOn:1}),
   });
   const weekDays = eachDayOfInterval({
-    start: startOfWeek(anchor,{weekStartsOn:0}),
-    end:   endOfWeek(anchor,{weekStartsOn:0}),
+    start: startOfWeek(anchor,{weekStartsOn:1}),
+    end:   endOfWeek(anchor,{weekStartsOn:1}),
   });
 
   const nav = {
     prev:    ()=>setAnchor(a=>viewMode==="month"?subMonths(a,1):subWeeks(a,1)),
     next:    ()=>setAnchor(a=>viewMode==="month"?addMonths(a,1):addWeeks(a,1)),
     today:   ()=>setAnchor(new Date()),
-    label:   viewMode==="month" ? format(anchor,"MMMM yyyy") : `${format(startOfWeek(anchor,{weekStartsOn:0}),"MMM d")} – ${format(endOfWeek(anchor,{weekStartsOn:0}),"MMM d, yyyy")}`,
+    label:   viewMode==="month" ? format(anchor,"MMMM yyyy") : `${format(startOfWeek(anchor,{weekStartsOn:1}),"MMM d")} – ${format(endOfWeek(anchor,{weekStartsOn:1}),"MMM d, yyyy")}`,
   };
 
   const exportXLSX = async () => {
@@ -551,7 +599,7 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
               {/* Day headers — month view only (week cells render their own labels) */}
               {viewMode==="month" && (
                 <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
-                  {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
+                  {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=>(
                     <div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"var(--text-3)",padding:"4px 0",letterSpacing:"0.5px",textTransform:"uppercase"}}>{d}</div>
                   ))}
                 </div>
@@ -610,9 +658,9 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
 
         {/* ── Employees ── */}
         {tab==="employees" && (
-          <div style={{maxWidth:480}}>
+          <div>
             <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:600,letterSpacing:"-0.4px"}}>Employees</h2>
-            <div style={{display:"flex",gap:8,marginBottom:20}}>
+            <div style={{display:"flex",gap:8,marginBottom:20,maxWidth:560}}>
               <input value={newEmpName} onChange={e=>setNewEmpName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&data.addEmployee(newEmpName.trim()).then(()=>setNewEmpName(""))}
                 placeholder="Employee name" style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
               <button onClick={async()=>{await data.addEmployee(newEmpName.trim());setNewEmpName("");}} disabled={data.loading||!newEmpName.trim()}
@@ -620,8 +668,8 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
                 <Icon.plus/> Add
               </button>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {data.employees.length===0&&<p style={{color:"var(--text-3)",fontSize:13}}>No employees yet.</p>}
+            {data.employees.length===0&&<p style={{color:"var(--text-3)",fontSize:13}}>No employees yet.</p>}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,maxWidth:860}}>
               {data.employees.map(emp=>(
                 <div key={emp.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--surface)"}}>
                   <span style={{fontSize:14,fontWeight:500}}>{emp.name}</span>
@@ -634,9 +682,9 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
 
         {/* ── Time Slots ── */}
         {tab==="timeslots" && (
-          <div style={{maxWidth:560}}>
+          <div>
             <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:600,letterSpacing:"-0.4px"}}>Time Slots</h2>
-            <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:16,marginBottom:20}}>
+            <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:16,marginBottom:20,maxWidth:700}}>
               <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",marginBottom:12,textTransform:"uppercase",letterSpacing:"0.5px"}}>{editingSlot?"Edit Slot":"New Slot"}</div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                 <input value={newSlot.label} onChange={e=>setNewSlot({...newSlot,label:e.target.value})} placeholder="Label (e.g. Morning)"
@@ -656,9 +704,9 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
                 {editingSlot&&<button onClick={()=>{setEditingSlot(null);setNewSlot({label:"",startTime:"09:00",endTime:"17:00",color:"#6366f1"});}} style={{padding:"8px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-2)",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>}
               </div>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {data.timeSlots.length===0&&<p style={{color:"var(--text-3)",fontSize:13}}>No time slots yet.</p>}
-              {data.timeSlots.map(slot=>(
+            {data.timeSlots.length===0&&<p style={{color:"var(--text-3)",fontSize:13}}>No time slots yet.</p>}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,maxWidth:860}}>
+              {[...data.timeSlots].sort((a,b)=>a.startTime.localeCompare(b.startTime)).map(slot=>(
                 <div key={slot.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--surface)"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
                     <div style={{width:14,height:14,borderRadius:"50%",background:slot.color,flexShrink:0}}/>
@@ -714,10 +762,10 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
 
   const rangeStart = viewMode==="month"
     ? format(startOfMonth(anchor),"yyyy-MM-dd")
-    : format(startOfWeek(anchor,{weekStartsOn:0}),"yyyy-MM-dd");
+    : format(startOfWeek(anchor,{weekStartsOn:1}),"yyyy-MM-dd");
   const rangeEnd = viewMode==="month"
     ? format(endOfMonth(anchor),"yyyy-MM-dd")
-    : format(endOfWeek(anchor,{weekStartsOn:0}),"yyyy-MM-dd");
+    : format(endOfWeek(anchor,{weekStartsOn:1}),"yyyy-MM-dd");
 
   const data = useSchedulerData(rangeStart, rangeEnd);
 
@@ -729,12 +777,12 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
   const today = new Date();
 
   const monthDays = eachDayOfInterval({
-    start: startOfWeek(startOfMonth(anchor),{weekStartsOn:0}),
-    end:   endOfWeek(endOfMonth(anchor),{weekStartsOn:0}),
+    start: startOfWeek(startOfMonth(anchor),{weekStartsOn:1}),
+    end:   endOfWeek(endOfMonth(anchor),{weekStartsOn:1}),
   });
   const weekDays = eachDayOfInterval({
-    start: startOfWeek(anchor,{weekStartsOn:0}),
-    end:   endOfWeek(anchor,{weekStartsOn:0}),
+    start: startOfWeek(anchor,{weekStartsOn:1}),
+    end:   endOfWeek(anchor,{weekStartsOn:1}),
   });
 
   const nav = {
@@ -743,7 +791,7 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
     today: ()=>setAnchor(new Date()),
     label: viewMode==="month"
       ? format(anchor,"MMMM yyyy")
-      : `${format(startOfWeek(anchor,{weekStartsOn:0}),"MMM d")} – ${format(endOfWeek(anchor,{weekStartsOn:0}),"MMM d")}`,
+      : `${format(startOfWeek(anchor,{weekStartsOn:1}),"MMM d")} – ${format(endOfWeek(anchor,{weekStartsOn:1}),"MMM d")}`,
   };
 
   const exportXLSX = async () => {
@@ -786,10 +834,10 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
             viewMode={viewMode} setViewMode={setViewMode}
             onExportXLSX={exportXLSX} onExportICal={exportICal} isMobile={true}/>
 
-          {/* Day headers — month view only */}
+          {/* Day headers — month view only (Mon–Sun) */}
           {viewMode==="month" && (
             <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:3}}>
-              {["S","M","T","W","T","F","S"].map((d,i)=>(
+              {["M","T","W","T","F","S","S"].map((d,i)=>(
                 <div key={i} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"var(--text-3)",padding:"3px 0"}}>{d}</div>
               ))}
             </div>
@@ -817,25 +865,64 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
             </div>
           )}
 
-          {/* Weekly view — tall cells */}
+          {/* Weekly view — Google Calendar style: day header row + scrollable shift rows per role */}
           {viewMode==="week" && (
-            <div style={{display:"flex",gap:1,background:"var(--border)",borderRadius:10,overflow:"hidden"}}>
-              {weekDays.map(day=>{
-                const isToday = isSameDay(day,today);
-                const ds = data.shiftsForDay(day);
-                const servers = ds.filter(s=>s.role==="Server");
-                const cooks   = ds.filter(s=>s.role==="Cook");
-                return (
-                  <div key={day.toString()} onClick={()=>{setSelectedDay(day);setSheet("day");}}
-                    style={{flex:1,background:"var(--surface)",minHeight:240,padding:"6px 4px 4px",cursor:"pointer",display:"flex",flexDirection:"column",gap:3}}>
-                    <div style={{textAlign:"center",marginBottom:3}}>
+            <div style={{borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
+              {/* Day header row */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"var(--surface2)",borderBottom:"1px solid var(--border)"}}>
+                {weekDays.map(day=>{
+                  const isToday = isSameDay(day,today);
+                  return (
+                    <div key={day.toString()} onClick={()=>{setSelectedDay(day);setSheet("day");}}
+                      style={{padding:"6px 0",textAlign:"center",cursor:"pointer",borderRight:"1px solid var(--border)"}}>
                       <div style={{fontSize:9,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.3px"}}>{format(day,"EEE")}</div>
-                      <div style={{width:22,height:22,borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:isToday?700:500,margin:"2px auto 0"}}>{format(day,"d")}</div>
+                      <div style={{width:24,height:24,borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:isToday?700:500,margin:"2px auto 0"}}>{format(day,"d")}</div>
                     </div>
-                    <RoleSplit servers={servers} cooks={cooks}/>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+              {/* Server row */}
+              <div style={{background:"var(--surface)"}}>
+                <div style={{fontSize:9,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",padding:"5px 8px 3px",background:"var(--surface2)",borderBottom:"1px solid var(--border)"}}>Servers</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",minHeight:70}}>
+                  {weekDays.map(day=>{
+                    const servers = data.shiftsForDay(day).filter(s=>s.role==="Server");
+                    return (
+                      <div key={day.toString()} onClick={()=>{setSelectedDay(day);setSheet("day");}}
+                        style={{padding:"3px 3px",borderRight:"1px solid var(--border)",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,minHeight:70}}>
+                        {servers.map(s=>(
+                          <div key={s.id} style={{padding:"3px 4px",borderRadius:4,background:hexToRgba(s.timeSlotColor,0.18),borderLeft:`3px solid ${s.timeSlotColor}`,fontSize:9,fontWeight:600,color:"var(--text)",lineHeight:1.3}}>
+                            <div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.employeeName}</div>
+                            <div style={{fontSize:8,color:"var(--text-2)",opacity:0.8}}>{s.timeSlotStart}</div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Divider */}
+              <div style={{height:1,background:"var(--border)"}}/>
+              {/* Cook row */}
+              <div style={{background:"var(--surface)"}}>
+                <div style={{fontSize:9,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",padding:"5px 8px 3px",background:"var(--surface2)",borderBottom:"1px solid var(--border)"}}>Cooks</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",minHeight:70}}>
+                  {weekDays.map(day=>{
+                    const cooks = data.shiftsForDay(day).filter(s=>s.role==="Cook");
+                    return (
+                      <div key={day.toString()} onClick={()=>{setSelectedDay(day);setSheet("day");}}
+                        style={{padding:"3px 3px",borderRight:"1px solid var(--border)",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,minHeight:70}}>
+                        {cooks.map(s=>(
+                          <div key={s.id} style={{padding:"3px 4px",borderRadius:4,background:hexToRgba(s.timeSlotColor,0.18),borderLeft:`3px solid ${s.timeSlotColor}`,fontSize:9,fontWeight:600,color:"var(--text)",lineHeight:1.3}}>
+                            <div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.employeeName}</div>
+                            <div style={{fontSize:8,color:"var(--text-2)",opacity:0.8}}>{s.timeSlotStart}</div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
         </div>
