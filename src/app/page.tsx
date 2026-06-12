@@ -236,23 +236,34 @@ function useSchedulerData(startDate: string, endDate: string) {
 
 // ─── Role column inside a day cell (used in side-by-side layout) ─
 function RoleColumn({ label, shifts, compact }: { label: string; shifts: Shift[]; compact?: boolean }) {
-  const h = compact ? 18 : 22;
-  const displayed = compact ? shifts.slice(0,2) : shifts; // week cells show all
+  const displayed = compact ? shifts.slice(0,2) : shifts;
   return (
     <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:1,padding:"0 2px"}}>
       <div style={{fontSize:8,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",marginBottom:1}}>{label}</div>
       {displayed.length===0
         ? <div style={{height:compact?10:12}}/>
         : displayed.map(s=>(
-            <div key={s.id} style={{
-              height:h, lineHeight:`${h}px`, padding:"0 3px", borderRadius:3,
-              background: hexToRgba(s.timeSlotColor, 0.18),
-              borderLeft:`3px solid ${s.timeSlotColor}`,
-              fontSize:9, fontWeight:600, color:"var(--text)",
-              whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-            }}>
-              {s.employeeName}
-            </div>
+            compact ? (
+              <div key={s.id} style={{
+                height:18, lineHeight:"18px", padding:"0 3px", borderRadius:3,
+                background: hexToRgba(s.timeSlotColor, 0.18),
+                borderLeft:`3px solid ${s.timeSlotColor}`,
+                fontSize:9, fontWeight:600, color:"var(--text)",
+                whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+              }}>
+                {s.employeeName}
+              </div>
+            ) : (
+              <div key={s.id} style={{
+                padding:"3px 4px", borderRadius:3,
+                background: hexToRgba(s.timeSlotColor, 0.18),
+                borderLeft:`3px solid ${s.timeSlotColor}`,
+                lineHeight:1.3,
+              }}>
+                <div style={{fontSize:10,fontWeight:600,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.employeeName}</div>
+                <div style={{fontSize:9,color:"var(--text-2)",fontFamily:"monospace"}}>{s.timeSlotStart}–{s.timeSlotEnd}</div>
+              </div>
+            )
           ))
       }
       {compact && shifts.length > 2 && <div style={{fontSize:8,color:"var(--text-3)"}}>{`+${shifts.length-2}`}</div>}
@@ -413,9 +424,93 @@ function ShiftForm({
   );
 }
 
+// ─── Export modal ─────────────────────────────────────────────
+function ExportModal({ employees, rangeStart, rangeEnd, onClose }: {
+  employees: Employee[]; rangeStart: string; rangeEnd: string; onClose: ()=>void;
+}) {
+  const [format_, setFormat_] = useState<"xlsx"|"ical">("xlsx");
+  const [empFilter, setEmpFilter] = useState<"all"|"select">("all");
+  const [selEmps, setSelEmps] = useState<string[]>([]);
+
+  const toggleEmp = (id: string) =>
+    setSelEmps(s => s.includes(id) ? s.filter(x=>x!==id) : [...s,id]);
+
+  const doExport = async () => {
+    const empIds = empFilter==="all" ? [] : selEmps;
+    const qs = empIds.length ? `&employees=${empIds.join(",")}` : "";
+    if (format_==="xlsx") {
+      const res = await fetch(`/api/export?format=xlsx&start=${rangeStart}&end=${rangeEnd}${qs}`);
+      const { rows } = await res.json();
+      const XLSX = await import("xlsx");
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,ws,"Shifts");
+      XLSX.writeFile(wb,`shifts-${rangeStart}.xlsx`);
+    } else {
+      window.location.href=`/api/export?format=ical&start=${rangeStart}&end=${rangeEnd}${qs}`;
+    }
+    onClose();
+  };
+
+  const S = (active:boolean) => ({
+    padding:"6px 12px", borderRadius:8, border:`1.5px solid ${active?"var(--accent)":"var(--border)"}`,
+    background: active?"var(--accent-light)":"var(--surface2)", color: active?"var(--accent)":"var(--text-2)",
+    fontSize:12, fontWeight:500 as const, cursor:"pointer" as const, fontFamily:"inherit",
+  });
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-box" style={{maxWidth:400}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">Export Schedule</span>
+          <button className="icon-btn" onClick={onClose}><Icon.x/></button>
+        </div>
+        <div style={{padding:"16px 20px 20px",display:"flex",flexDirection:"column",gap:16}}>
+          {/* Format */}
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.6px",marginBottom:8}}>Format</div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setFormat_("xlsx")} style={S(format_==="xlsx")}>📊 Spreadsheet (XLSX)</button>
+              <button onClick={()=>setFormat_("ical")} style={S(format_==="ical")}>📅 Calendar (iCal)</button>
+            </div>
+          </div>
+          {/* Employees */}
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.6px",marginBottom:8}}>Employees</div>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
+              <button onClick={()=>{setEmpFilter("all");setSelEmps([]);}} style={S(empFilter==="all")}>All Employees</button>
+              <button onClick={()=>setEmpFilter("select")} style={S(empFilter==="select")}>Select Employees</button>
+            </div>
+            {empFilter==="select" && (
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {employees.map(emp=>(
+                  <button key={emp.id} onClick={()=>toggleEmp(emp.id)} style={{
+                    ...S(selEmps.includes(emp.id)),
+                    padding:"5px 10px", fontSize:12,
+                  }}>{emp.name}</button>
+                ))}
+                {employees.length===0&&<p style={{fontSize:12,color:"var(--text-3)",margin:0}}>No employees yet.</p>}
+              </div>
+            )}
+          </div>
+          {/* Range info */}
+          <div style={{fontSize:12,color:"var(--text-2)",background:"var(--surface2)",padding:"8px 12px",borderRadius:8}}>
+            Range: <span style={{fontFamily:"monospace",color:"var(--text)"}}>{rangeStart}</span> → <span style={{fontFamily:"monospace",color:"var(--text)"}}>{rangeEnd}</span>
+          </div>
+          <button onClick={doExport}
+            disabled={empFilter==="select"&&selEmps.length===0}
+            style={{padding:"10px",borderRadius:9,border:"none",background:"var(--accent)",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",opacity:empFilter==="select"&&selEmps.length===0?0.4:1,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <Icon.download/> Export
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Calendar header nav ──────────────────────────────────────
-function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExportXLSX, onExportICal, isMobile }:
-  { label:string; onPrev:()=>void; onNext:()=>void; onToday:()=>void; viewMode:ViewMode; setViewMode:(v:ViewMode)=>void; onExportXLSX:()=>void; onExportICal:()=>void; isMobile:boolean }) {
+function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExport, isMobile }:
+  { label:string; onPrev:()=>void; onNext:()=>void; onToday:()=>void; viewMode:ViewMode; setViewMode:(v:ViewMode)=>void; onExport:()=>void; isMobile:boolean }) {
   return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -432,8 +527,7 @@ function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExpor
             </button>
           ))}
         </div>
-        <button onClick={onExportXLSX} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Export XLSX"><Icon.download/></button>
-        <button onClick={onExportICal} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Export iCal"><Icon.ical/></button>
+        <button onClick={onExport} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Export"><Icon.download/></button>
       </div>
     </div>
   );
@@ -459,6 +553,7 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
   const [newEmpName,   setNewEmpName]   = useState("");
   const [editingSlot,  setEditingSlot]  = useState<TimeSlot|null>(null);
   const [newSlot,      setNewSlot]      = useState({label:"",startTime:"09:00",endTime:"17:00",color:"#6366f1"});
+  const [showExport,   setShowExport]   = useState(false);
 
   const rangeStart = viewMode==="month"
     ? format(startOfMonth(anchor),"yyyy-MM-dd")
@@ -492,17 +587,6 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
     today:   ()=>setAnchor(new Date()),
     label:   viewMode==="month" ? format(anchor,"MMMM yyyy") : `${format(startOfWeek(anchor,{weekStartsOn:1}),"MMM d")} – ${format(endOfWeek(anchor,{weekStartsOn:1}),"MMM d, yyyy")}`,
   };
-
-  const exportXLSX = async () => {
-    const res = await fetch(`/api/export?format=xlsx&start=${rangeStart}&end=${rangeEnd}`);
-    const { rows } = await res.json();
-    const XLSX = await import("xlsx");
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,ws,"Shifts");
-    XLSX.writeFile(wb,`shifts-${rangeStart}.xlsx`);
-  };
-  const exportICal = () => { window.location.href=`/api/export?format=ical&start=${rangeStart}&end=${rangeEnd}`; };
 
   const openDay = (day:Date) => {
     setSelectedDay(day);
@@ -559,6 +643,7 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
   return (
     <div style={{minHeight:"100vh",background:"var(--bg)",color:"var(--text)"}}>
       {showPw && <PasswordModal onSuccess={()=>{setIsManager(true);setShowPw(false);if(pending){pending();setPending(null);}}} onCancel={()=>{setShowPw(false);setPending(null);}}/>}
+      {showExport && <ExportModal employees={data.employees} rangeStart={rangeStart} rangeEnd={rangeEnd} onClose={()=>setShowExport(false)}/>}
 
       {/* Header */}
       <header style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56}}>
@@ -594,7 +679,7 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
             <div style={{flex:1,minWidth:0}}>
               <CalNav label={nav.label} onPrev={nav.prev} onNext={nav.next} onToday={nav.today}
                 viewMode={viewMode} setViewMode={setViewMode}
-                onExportXLSX={exportXLSX} onExportICal={exportICal} isMobile={false}/>
+                onExport={()=>setShowExport(true)} isMobile={false}/>
 
               {/* Day headers — month view only (week cells render their own labels) */}
               {viewMode==="month" && (
@@ -759,6 +844,7 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
   const [newEmpName,    setNewEmpName]   = useState("");
   const [editingSlot,   setEditingSlot]  = useState<TimeSlot|null>(null);
   const [newSlot,       setNewSlot]      = useState({label:"",startTime:"09:00",endTime:"17:00",color:"#6366f1"});
+  const [showExport,    setShowExport]   = useState(false);
 
   const rangeStart = viewMode==="month"
     ? format(startOfMonth(anchor),"yyyy-MM-dd")
@@ -794,23 +880,13 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
       : `${format(startOfWeek(anchor,{weekStartsOn:1}),"MMM d")} – ${format(endOfWeek(anchor,{weekStartsOn:1}),"MMM d")}`,
   };
 
-  const exportXLSX = async () => {
-    const res = await fetch(`/api/export?format=xlsx&start=${rangeStart}&end=${rangeEnd}`);
-    const { rows } = await res.json();
-    const XLSX = await import("xlsx");
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,ws,"Shifts");
-    XLSX.writeFile(wb,`shifts-${rangeStart}.xlsx`);
-  };
-  const exportICal = () => { window.location.href=`/api/export?format=ical&start=${rangeStart}&end=${rangeEnd}`; };
-
   return (
-    <div style={{minHeight:"100vh",background:"var(--bg)",color:"var(--text)",paddingBottom:72}}>
+    <div style={{height:"100vh",overflow:"hidden",background:"var(--bg)",color:"var(--text)",display:"flex",flexDirection:"column"}}>
       {showPw&&<PasswordModal onSuccess={()=>{setIsManager(true);setShowPw(false);if(pending){pending();setPending(null);}}} onCancel={()=>{setShowPw(false);setPending(null);}}/>}
+      {showExport&&<ExportModal employees={data.employees} rangeStart={rangeStart} rangeEnd={rangeEnd} onClose={()=>setShowExport(false)}/>}
 
       {/* Top bar */}
-      <header style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52,position:"sticky",top:0,zIndex:50}}>
+      <header style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52,flexShrink:0}}>
         <span style={{fontSize:15,fontWeight:700,letterSpacing:"-0.3px"}}>
           {tab==="calendar"?nav.label:tab==="employees"?"Employees":"Time Slots"}
         </span>
@@ -829,10 +905,10 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
 
       {/* ── CALENDAR ── */}
       {tab==="calendar" && (
-        <div style={{padding:"12px 10px 0"}}>
+        <div style={{padding:"12px 10px 0",display:"flex",flexDirection:"column",height:"calc(100vh - 52px - 60px)"}}>
           <CalNav label={nav.label} onPrev={nav.prev} onNext={nav.next} onToday={nav.today}
             viewMode={viewMode} setViewMode={setViewMode}
-            onExportXLSX={exportXLSX} onExportICal={exportICal} isMobile={true}/>
+            onExport={()=>setShowExport(true)} isMobile={true}/>
 
           {/* Day headers — month view only (Mon–Sun) */}
           {viewMode==="month" && (
@@ -843,9 +919,9 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
             </div>
           )}
 
-          {/* Monthly view */}
+          {/* Monthly view — fills remaining height */}
           {viewMode==="month" && (
-            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:10,overflow:"hidden"}}>
+            <div style={{flex:1,display:"grid",gridTemplateColumns:"repeat(7,1fr)",gridAutoRows:"1fr",gap:1,background:"var(--border)",borderRadius:10,overflow:"hidden"}}>
               {monthDays.map(day=>{
                 const inMonth = isSameMonth(day,anchor);
                 const isToday = isSameDay(day,today);
@@ -854,9 +930,9 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
                 const cooks   = ds.filter(s=>s.role==="Cook");
                 return (
                   <div key={day.toString()} onClick={()=>{if(inMonth){setSelectedDay(day);setSheet("day");}}}
-                    style={{background:"var(--surface)",minHeight:70,padding:"4px 3px 3px",cursor:inMonth?"pointer":"default",opacity:inMonth?1:0.3,display:"flex",flexDirection:"column",gap:2}}>
+                    style={{background:"var(--surface)",padding:"4px 3px 3px",cursor:inMonth?"pointer":"default",opacity:inMonth?1:0.3,display:"flex",flexDirection:"column",gap:2,overflow:"hidden"}}>
                     <div style={{display:"flex",justifyContent:"center",marginBottom:1}}>
-                      <span style={{fontSize:10,fontWeight:isToday?700:400,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)"}}>{format(day,"d")}</span>
+                      <span style={{fontSize:10,fontWeight:isToday?700:400,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)",flexShrink:0}}>{format(day,"d")}</span>
                     </div>
                     <RoleSplit servers={servers} cooks={cooks} compact/>
                   </div>
@@ -865,11 +941,11 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
             </div>
           )}
 
-          {/* Weekly view — Google Calendar style: day header row + scrollable shift rows per role */}
+          {/* Weekly view — fills remaining height, Google Calendar style */}
           {viewMode==="week" && (
-            <div style={{borderRadius:10,overflow:"hidden",border:"1px solid var(--border)"}}>
+            <div style={{flex:1,borderRadius:10,overflow:"hidden",border:"1px solid var(--border)",display:"flex",flexDirection:"column"}}>
               {/* Day header row */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"var(--surface2)",borderBottom:"1px solid var(--border)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"var(--surface2)",borderBottom:"1px solid var(--border)",flexShrink:0}}>
                 {weekDays.map(day=>{
                   const isToday = isSameDay(day,today);
                   return (
@@ -881,19 +957,19 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
                   );
                 })}
               </div>
-              {/* Server row */}
-              <div style={{background:"var(--surface)"}}>
-                <div style={{fontSize:9,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",padding:"5px 8px 3px",background:"var(--surface2)",borderBottom:"1px solid var(--border)"}}>Servers</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",minHeight:70}}>
+              {/* Server row — half the remaining space */}
+              <div style={{flex:1,display:"flex",flexDirection:"column",background:"var(--surface)",minHeight:0}}>
+                <div style={{fontSize:9,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",padding:"4px 8px 3px",background:"var(--surface2)",borderBottom:"1px solid var(--border)",flexShrink:0}}>Servers</div>
+                <div style={{flex:1,display:"grid",gridTemplateColumns:"repeat(7,1fr)",overflow:"hidden"}}>
                   {weekDays.map(day=>{
                     const servers = data.shiftsForDay(day).filter(s=>s.role==="Server");
                     return (
                       <div key={day.toString()} onClick={()=>{setSelectedDay(day);setSheet("day");}}
-                        style={{padding:"3px 3px",borderRight:"1px solid var(--border)",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,minHeight:70}}>
+                        style={{padding:"3px",borderRight:"1px solid var(--border)",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,overflow:"hidden"}}>
                         {servers.map(s=>(
-                          <div key={s.id} style={{padding:"3px 4px",borderRadius:4,background:hexToRgba(s.timeSlotColor,0.18),borderLeft:`3px solid ${s.timeSlotColor}`,fontSize:9,fontWeight:600,color:"var(--text)",lineHeight:1.3}}>
+                          <div key={s.id} style={{padding:"3px 4px",borderRadius:4,background:hexToRgba(s.timeSlotColor,0.18),borderLeft:`3px solid ${s.timeSlotColor}`,fontSize:9,fontWeight:600,color:"var(--text)",lineHeight:1.3,flexShrink:0}}>
                             <div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.employeeName}</div>
-                            <div style={{fontSize:8,color:"var(--text-2)",opacity:0.8}}>{s.timeSlotStart}</div>
+                            <div style={{fontSize:8,color:"var(--text-2)",opacity:0.8,fontFamily:"monospace"}}>{s.timeSlotStart}–{s.timeSlotEnd}</div>
                           </div>
                         ))}
                       </div>
@@ -902,20 +978,20 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
                 </div>
               </div>
               {/* Divider */}
-              <div style={{height:1,background:"var(--border)"}}/>
-              {/* Cook row */}
-              <div style={{background:"var(--surface)"}}>
-                <div style={{fontSize:9,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",padding:"5px 8px 3px",background:"var(--surface2)",borderBottom:"1px solid var(--border)"}}>Cooks</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",minHeight:70}}>
+              <div style={{height:1,background:"var(--border)",flexShrink:0}}/>
+              {/* Cook row — half the remaining space */}
+              <div style={{flex:1,display:"flex",flexDirection:"column",background:"var(--surface)",minHeight:0}}>
+                <div style={{fontSize:9,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.4px",padding:"4px 8px 3px",background:"var(--surface2)",borderBottom:"1px solid var(--border)",flexShrink:0}}>Cooks</div>
+                <div style={{flex:1,display:"grid",gridTemplateColumns:"repeat(7,1fr)",overflow:"hidden"}}>
                   {weekDays.map(day=>{
                     const cooks = data.shiftsForDay(day).filter(s=>s.role==="Cook");
                     return (
                       <div key={day.toString()} onClick={()=>{setSelectedDay(day);setSheet("day");}}
-                        style={{padding:"3px 3px",borderRight:"1px solid var(--border)",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,minHeight:70}}>
+                        style={{padding:"3px",borderRight:"1px solid var(--border)",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,overflow:"hidden"}}>
                         {cooks.map(s=>(
-                          <div key={s.id} style={{padding:"3px 4px",borderRadius:4,background:hexToRgba(s.timeSlotColor,0.18),borderLeft:`3px solid ${s.timeSlotColor}`,fontSize:9,fontWeight:600,color:"var(--text)",lineHeight:1.3}}>
+                          <div key={s.id} style={{padding:"3px 4px",borderRadius:4,background:hexToRgba(s.timeSlotColor,0.18),borderLeft:`3px solid ${s.timeSlotColor}`,fontSize:9,fontWeight:600,color:"var(--text)",lineHeight:1.3,flexShrink:0}}>
                             <div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.employeeName}</div>
-                            <div style={{fontSize:8,color:"var(--text-2)",opacity:0.8}}>{s.timeSlotStart}</div>
+                            <div style={{fontSize:8,color:"var(--text-2)",opacity:0.8,fontFamily:"monospace"}}>{s.timeSlotStart}–{s.timeSlotEnd}</div>
                           </div>
                         ))}
                       </div>
@@ -930,7 +1006,7 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
 
       {/* ── EMPLOYEES ── */}
       {tab==="employees" && (
-        <div style={{padding:"16px 16px 0"}}>
+        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 80px"}}>
           <div style={{display:"flex",gap:8,marginBottom:16}}>
             <input value={newEmpName} onChange={e=>setNewEmpName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&data.addEmployee(newEmpName.trim()).then(()=>setNewEmpName(""))}
               placeholder="Employee name" style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:14,fontFamily:"inherit",outline:"none"}}/>
@@ -953,7 +1029,7 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
 
       {/* ── TIME SLOTS ── */}
       {tab==="timeslots" && (
-        <div style={{padding:"16px 16px 0"}}>
+        <div style={{flex:1,overflowY:"auto",padding:"16px 16px 80px"}}>
           <button onClick={()=>{setEditingSlot(null);setNewSlot({label:"",startTime:"09:00",endTime:"17:00",color:"#6366f1"});setSheet("editSlot");}}
             style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:"var(--accent)",color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:"inherit",marginBottom:16}}>
             <Icon.plus/> New Time Slot
