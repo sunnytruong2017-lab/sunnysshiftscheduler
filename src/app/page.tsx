@@ -130,26 +130,19 @@ function PasswordModal({ onSuccess, onCancel }: { onSuccess: ()=>void; onCancel:
   );
 }
 
-// ─── Shared data hook — optimistic updates ───────────────────
+// ─── Module-level cache (persists across remounts in this session) ─
+type CacheEntry = { employees: Employee[]; timeSlots: TimeSlot[]; shifts: Shift[] };
+const dataCache = new Map<string, CacheEntry>();
+
+// ─── Shared data hook — optimistic updates + cache ────────────
 function useSchedulerData(startDate: string, endDate: string) {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
-  const [shifts,    setShifts]    = useState<Shift[]>([]);
+  const cacheKey = `${startDate}_${endDate}`;
+  const cached = dataCache.get(cacheKey);
+
+  const [employees, setEmployees] = useState<Employee[]>(cached?.employees ?? []);
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>(cached?.timeSlots ?? []);
+  const [shifts,    setShifts]    = useState<Shift[]>(cached?.shifts ?? []);
   const [loading,   setLoading]   = useState(false);
-
-  const fetchAll = useCallback(async () => {
-    const [eR, sR, shR] = await Promise.all([
-      fetch("/api/employees"),
-      fetch("/api/timeslots"),
-      fetch(`/api/shifts?start=${startDate}&end=${endDate}`),
-    ]);
-    const [emps, slots, shs] = await Promise.all([eR.json(), sR.json(), shR.json()]);
-    setEmployees(emps);
-    setTimeSlots(slots);
-    setShifts(sortShifts(shs, slots));
-  }, [startDate, endDate]);
-
-  useEffect(()=>{ fetchAll(); },[fetchAll]);
 
   // Sort by timeSlotStart ascending
   function sortShifts(shs: Shift[], slots: TimeSlot[]) {
@@ -160,16 +153,55 @@ function useSchedulerData(startDate: string, endDate: string) {
     });
   }
 
+  const fetchAll = useCallback(async (silent?: boolean) => {
+    const [eR, sR, shR] = await Promise.all([
+      fetch("/api/employees"),
+      fetch("/api/timeslots"),
+      fetch(`/api/shifts?start=${startDate}&end=${endDate}`),
+    ]);
+    const [emps, slots, shs] = await Promise.all([eR.json(), sR.json(), shR.json()]);
+    const sorted = sortShifts(shs, slots);
+    dataCache.set(`${startDate}_${endDate}`, { employees: emps, timeSlots: slots, shifts: sorted });
+    setEmployees(emps);
+    setTimeSlots(slots);
+    setShifts(sorted);
+  }, [startDate, endDate]);
+
+  // On range change: show cached data instantly (if any) without a loading
+  // flicker, then silently refresh in the background to catch any updates.
+  useEffect(() => {
+    const c = dataCache.get(cacheKey);
+    if (c) {
+      setEmployees(c.employees);
+      setTimeSlots(c.timeSlots);
+      setShifts(c.shifts);
+      fetchAll(true); // background refresh, no spinner
+    } else {
+      fetchAll();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheKey]);
+
+  // Invalidate all cached ranges except the current one (their employees/
+  // timeSlots/shifts may now be stale after a mutation).
+  const invalidateOtherRanges = () => {
+    Array.from(dataCache.keys()).forEach(key => {
+      if (key !== cacheKey) dataCache.delete(key);
+    });
+  };
+
   const tempId = () => `temp-${Math.random().toString(36).slice(2)}`;
 
   const addEmployee = async (name: string) => {
     setLoading(true);
     await fetch("/api/employees",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name})});
+    invalidateOtherRanges();
     await fetchAll(); setLoading(false);
   };
   const removeEmployee = async (id: string) => {
     setEmployees(es=>es.filter(e=>e.id!==id));
     await fetch("/api/employees",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    invalidateOtherRanges();
     await fetchAll();
   };
 
@@ -181,11 +213,13 @@ function useSchedulerData(startDate: string, endDate: string) {
     } else {
       await fetch("/api/timeslots",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(slot)});
     }
+    invalidateOtherRanges();
     await fetchAll(); setLoading(false);
   };
   const removeSlot = async (id: string) => {
     setTimeSlots(ts=>ts.filter(t=>t.id!==id));
     await fetch("/api/timeslots",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    invalidateOtherRanges();
     await fetchAll();
   };
 
@@ -207,6 +241,7 @@ function useSchedulerData(startDate: string, endDate: string) {
       return fetch("/api/shifts",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({employeeId:empId,employeeName:emp?.name??"",date,timeSlotId:slotId,timeSlotLabel:slot?.label??"",role})});
     }));
+    invalidateOtherRanges();
     await fetchAll(); setLoading(false);
   };
 
@@ -220,12 +255,14 @@ function useSchedulerData(startDate: string, endDate: string) {
       timeSlotEnd:slot?.endTime??s.timeSlotEnd,timeSlotColor:slot?.color??s.timeSlotColor,role:role as "Server"|"Cook"}:s), timeSlots));
     await fetch("/api/shifts",{method:"PATCH",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({id,employeeId:empId,employeeName:emp?.name??"",date,timeSlotId:slotId,timeSlotLabel:slot?.label??"",role})});
+    invalidateOtherRanges();
     await fetchAll(); setLoading(false);
   };
 
   const deleteShift = async (id: string) => {
     setShifts(ss=>ss.filter(s=>s.id!==id)); // optimistic remove
     await fetch("/api/shifts",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    invalidateOtherRanges();
     await fetchAll();
   };
 
