@@ -161,10 +161,15 @@ function useSchedulerData(startDate: string, endDate: string) {
     ]);
     const [emps, slots, shs] = await Promise.all([eR.json(), sR.json(), shR.json()]);
     const sorted = sortShifts(shs, slots);
-    dataCache.set(`${startDate}_${endDate}`, { employees: emps, timeSlots: slots, shifts: sorted });
-    setEmployees(emps);
-    setTimeSlots(slots);
-    setShifts(sorted);
+    const key = `${startDate}_${endDate}`;
+    const prev = dataCache.get(key);
+    const changed = !prev || JSON.stringify(prev) !== JSON.stringify({employees:emps,timeSlots:slots,shifts:sorted});
+    dataCache.set(key, { employees: emps, timeSlots: slots, shifts: sorted });
+    if (!silent || changed) {
+      setEmployees(emps);
+      setTimeSlots(slots);
+      setShifts(sorted);
+    }
   }, [startDate, endDate]);
 
   // On range change: show cached data instantly (if any) without a loading
