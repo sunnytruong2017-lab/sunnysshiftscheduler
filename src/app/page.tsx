@@ -691,13 +691,13 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
               )}
 
               {viewMode==="month" && (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:12,overflow:"hidden"}}>
+                <div key={anchor.toString()} className="cal-fade" style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:"var(--border)",borderRadius:12,overflow:"hidden"}}>
                   {monthDays.map(day=><MonthCell key={day.toString()} day={day}/>)}
                 </div>
               )}
 
               {viewMode==="week" && (
-                <div style={{display:"flex",gap:1,background:"var(--border)",borderRadius:12,overflow:"hidden"}}>
+                <div key={anchor.toString()} className="cal-fade" style={{display:"flex",gap:1,background:"var(--border)",borderRadius:12,overflow:"hidden"}}>
                   {weekDays.map(day=><WeekCell key={day.toString()} day={day}/>)}
                 </div>
               )}
@@ -813,14 +813,22 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
       </main>
 
       <style>{`
-        .icon-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-2);transition:background 0.1s;}
+        *{transition:background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;}
+        .icon-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-2);transition:background 0.15s ease, transform 0.1s ease;}
         .icon-btn:hover{background:var(--surface2);}
-        .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(2px);}
-        .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.15);}
+        .icon-btn:active{transform:scale(0.92);}
+        button{transition:background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease, transform 0.1s ease;}
+        button:active{transform:scale(0.97);}
+        .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(2px);animation:fadeIn 0.15s ease;}
+        .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.15);animation:modalIn 0.18s ease;}
         .modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 14px;border-bottom:1px solid var(--border);}
         .modal-title{font-size:15px;font-weight:600;letter-spacing:-0.3px;}
         input:focus{border-color:var(--accent)!important;}
         ::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:var(--border);border-radius:10px;}
+        .cal-fade{animation:fadeSlide 0.22s ease;}
+        @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+        @keyframes modalIn{from{opacity:0;transform:translateY(8px) scale(0.98);}to{opacity:1;transform:translateY(0) scale(1);}}
+        @keyframes fadeSlide{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
       `}</style>
     </div>
   );
@@ -880,6 +888,21 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
       : `${format(startOfWeek(anchor,{weekStartsOn:1}),"MMM d")} – ${format(endOfWeek(anchor,{weekStartsOn:1}),"MMM d")}`,
   };
 
+  // Swipe navigation
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)*1.5) {
+      if (dx > 0) nav.prev(); else nav.next();
+    }
+  };
+
   return (
     <div style={{height:"100vh",overflow:"hidden",background:"var(--bg)",color:"var(--text)",display:"flex",flexDirection:"column"}}>
       {showPw&&<PasswordModal onSuccess={()=>{setIsManager(true);setShowPw(false);if(pending){pending();setPending(null);}}} onCancel={()=>{setShowPw(false);setPending(null);}}/>}
@@ -905,10 +928,12 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
 
       {/* ── CALENDAR ── */}
       {tab==="calendar" && (
-        <div style={{padding:"12px 10px 0",display:"flex",flexDirection:"column",height:"calc(100vh - 52px - 60px)"}}>
+        <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+          style={{padding:"12px 10px 0",display:"flex",flexDirection:"column",height:"calc(100vh - 52px - 60px)"}}>
           <CalNav label={nav.label} onPrev={nav.prev} onNext={nav.next} onToday={nav.today}
             viewMode={viewMode} setViewMode={setViewMode}
             onExport={()=>setShowExport(true)} isMobile={true}/>
+          <div key={anchor.toString()+viewMode} className="cal-fade" style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
 
           {/* Day headers — month view only (Mon–Sun) */}
           {viewMode==="month" && (
@@ -919,22 +944,28 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
             </div>
           )}
 
-          {/* Monthly view — fills remaining height */}
+          {/* Monthly view — fills remaining height, dot-based agenda style */}
           {viewMode==="month" && (
             <div style={{flex:1,display:"grid",gridTemplateColumns:"repeat(7,1fr)",gridAutoRows:"1fr",gap:1,background:"var(--border)",borderRadius:10,overflow:"hidden"}}>
               {monthDays.map(day=>{
                 const inMonth = isSameMonth(day,anchor);
                 const isToday = isSameDay(day,today);
                 const ds = data.shiftsForDay(day);
-                const servers = ds.filter(s=>s.role==="Server");
-                const cooks   = ds.filter(s=>s.role==="Cook");
+                const maxDots = 6;
+                const shown = ds.slice(0,maxDots);
+                const extra = ds.length - shown.length;
                 return (
                   <div key={day.toString()} onClick={()=>{if(inMonth){setSelectedDay(day);setSheet("day");}}}
-                    style={{background:"var(--surface)",padding:"4px 3px 3px",cursor:inMonth?"pointer":"default",opacity:inMonth?1:0.3,display:"flex",flexDirection:"column",gap:2,overflow:"hidden"}}>
-                    <div style={{display:"flex",justifyContent:"center",marginBottom:1}}>
-                      <span style={{fontSize:10,fontWeight:isToday?700:400,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)",flexShrink:0}}>{format(day,"d")}</span>
-                    </div>
-                    <RoleSplit servers={servers} cooks={cooks} compact/>
+                    style={{background:"var(--surface)",padding:"4px 3px",cursor:inMonth?"pointer":"default",opacity:inMonth?1:0.3,display:"flex",flexDirection:"column",alignItems:"center",gap:3,overflow:"hidden"}}>
+                    <span style={{fontSize:11,fontWeight:isToday?700:400,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)",flexShrink:0}}>{format(day,"d")}</span>
+                    {ds.length>0 && (
+                      <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:2,maxWidth:"100%"}}>
+                        {shown.map(s=>(
+                          <div key={s.id} style={{width:6,height:6,borderRadius:"50%",background:s.timeSlotColor,flexShrink:0}}/>
+                        ))}
+                        {extra>0 && <span style={{fontSize:8,color:"var(--text-3)",fontWeight:600,lineHeight:"6px"}}>{`+${extra}`}</span>}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1001,6 +1032,7 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
 
@@ -1164,13 +1196,21 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
       )}
 
       <style>{`
-        .icon-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-2);transition:background 0.1s;}
+        *{transition:background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;}
+        .icon-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-2);transition:background 0.15s ease, transform 0.1s ease;}
         .icon-btn:hover{background:var(--surface2);}
-        .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(2px);}
-        .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.15);}
+        .icon-btn:active{transform:scale(0.92);}
+        button{transition:background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease, transform 0.1s ease;}
+        button:active{transform:scale(0.97);}
+        .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(2px);animation:fadeIn 0.15s ease;}
+        .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.15);animation:modalIn 0.18s ease;}
         .modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 14px;border-bottom:1px solid var(--border);}
         .modal-title{font-size:15px;font-weight:600;letter-spacing:-0.3px;}
         input:focus{border-color:var(--accent)!important;}
+        .cal-fade{animation:fadeSlide 0.22s ease;}
+        @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+        @keyframes modalIn{from{opacity:0;transform:translateY(8px) scale(0.98);}to{opacity:1;transform:translateY(0) scale(1);}}
+        @keyframes fadeSlide{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
       `}</style>
     </div>
   );
