@@ -1042,11 +1042,15 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
           <button onClick={()=>setShowShare(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"inherit"}}>
             <Icon.qr/> Share
           </button>
-          {isManager&&(
+          {isManager ? (
             <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:20,background:"var(--accent-light)",color:"var(--accent)",fontSize:11,fontWeight:600}}>
               <Icon.unlock/> Manager
               <button onClick={()=>{setIsManager(false);setTab("calendar");}} style={{marginLeft:4,background:"none",border:"none",cursor:"pointer",color:"var(--accent)",display:"flex",padding:0}}><Icon.x/></button>
             </div>
+          ) : (
+            <button onClick={()=>setShowPw(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"inherit"}}>
+              <Icon.lock/> Manager
+            </button>
           )}
           <button onClick={()=>setDark(!dark)} style={{width:32,height:32,borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-2)",overflow:"hidden"}}>
             <span key={dark?"sun":"moon"} className="theme-icon-spin">{dark?<Icon.sun/>:<Icon.moon/>}</span>
@@ -1381,11 +1385,15 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
           <button onClick={()=>setShowShare(true)} style={{width:34,height:34,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-2)"}}>
             <Icon.qr/>
           </button>
-          {isManager&&(
+          {isManager ? (
             <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,background:"var(--accent-light)",color:"var(--accent)",fontSize:11,fontWeight:600}}>
               <Icon.unlock/> Mgr
               <button onClick={()=>{setIsManager(false);setTab("calendar");}} style={{background:"none",border:"none",cursor:"pointer",color:"var(--accent)",display:"flex",padding:0,marginLeft:2}}><Icon.x/></button>
             </div>
+          ) : (
+            <button onClick={()=>setShowPw(true)} style={{width:34,height:34,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-2)"}}>
+              <Icon.lock/>
+            </button>
           )}
           <button onClick={()=>setDark(!dark)} style={{width:34,height:34,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-2)",overflow:"hidden"}}>
             <span key={dark?"sun":"moon"} className="theme-icon-spin">{dark?<Icon.sun/>:<Icon.moon/>}</span>
