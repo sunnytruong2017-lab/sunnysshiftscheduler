@@ -91,6 +91,13 @@ const Icon = {
   grid:     ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>,
   list:     ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
   ical:     ()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/></svg>,
+  qr:       ()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="21" y1="14" x2="21" y2="21"/><line x1="14" y1="17.5" x2="21" y2="17.5"/></svg>,
+  print:    ()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6,9 6,2 18,2 18,9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>,
+  undo:     ()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>,
+  copy:     ()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
+  template: ()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>,
+  link:     ()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>,
+  save:     ()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>,
 };
 
 // ─── Password modal ───────────────────────────────────────────
@@ -288,13 +295,67 @@ function useSchedulerData(startDate: string, endDate: string) {
     await fetchAll();
   };
 
+  // Delete but keep the removed shift around so the caller can offer "Undo".
+  // Returns the removed shift; call restoreDeletedShift(shift) to bring it back.
+  const deleteShiftWithUndo = async (id: string): Promise<Shift | null> => {
+    const removed = shifts.find(s=>s.id===id) ?? null;
+    setShifts(ss=>ss.filter(s=>s.id!==id));
+    await fetch("/api/shifts",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    invalidateOtherRanges();
+    return removed;
+  };
+
+  const restoreDeletedShift = async (shift: Shift) => {
+    setShifts(ss=>sortShifts([...ss, shift], timeSlots)); // optimistic re-add
+    await fetch("/api/shifts",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"restore", id: shift.id})});
+    invalidateOtherRanges();
+    await fetchAll();
+  };
+
+  // Create many shifts at once (used by "copy previous week" and templates).
+  // Each entry specifies its own date/employee/slot/role.
+  const addShiftBatch = async (entries: { employeeId:string; date:string; timeSlotId:string; role:string }[]) => {
+    setLoading(true);
+    const tempShifts: Shift[] = entries.map(e => {
+      const emp  = employees.find(x=>x.id===e.employeeId);
+      const slot = timeSlots.find(x=>x.id===e.timeSlotId);
+      return {
+        id: tempId(), date: e.date, employeeId: e.employeeId, employeeName: emp?.name??"",
+        timeSlotId: e.timeSlotId, timeSlotLabel: slot?.label??"", timeSlotStart: slot?.startTime??"",
+        timeSlotEnd: slot?.endTime??"", timeSlotColor: slot?.color??"#6366f1", role: e.role as "Server"|"Cook",
+      };
+    });
+    setShifts(ss=>sortShifts([...ss,...tempShifts], timeSlots));
+    await Promise.all(entries.map(e => {
+      const emp  = employees.find(x=>x.id===e.employeeId);
+      const slot = timeSlots.find(x=>x.id===e.timeSlotId);
+      return fetch("/api/shifts",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({employeeId:e.employeeId,employeeName:emp?.name??"",date:e.date,timeSlotId:e.timeSlotId,timeSlotLabel:slot?.label??"",role:e.role})});
+    }));
+    invalidateOtherRanges();
+    await fetchAll(); setLoading(false);
+  };
+
+  // Move an existing shift to a new date (and optionally role) — used for
+  // drag-and-drop. Keeps the same employee and time slot.
+  const moveShift = async (id: string, newDate: string, newRole?: string) => {
+    const existing = shifts.find(s=>s.id===id);
+    if (!existing) return;
+    const role = (newRole ?? existing.role) as "Server"|"Cook";
+    setShifts(ss=>sortShifts(ss.map(s=>s.id===id?{...s,date:newDate,role}:s), timeSlots));
+    await fetch("/api/shifts",{method:"PATCH",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id,employeeId:existing.employeeId,employeeName:existing.employeeName,date:newDate,timeSlotId:existing.timeSlotId,timeSlotLabel:existing.timeSlotLabel,role})});
+    invalidateOtherRanges();
+    await fetchAll();
+  };
+
   const shiftsForDay = (day: Date) => shifts.filter(s=>s.date===format(day,"yyyy-MM-dd"));
 
-  return { employees, timeSlots, shifts, loading, initialLoading, fetchAll, addEmployee, removeEmployee, saveSlot, removeSlot, addShifts, updateShift, deleteShift, shiftsForDay };
+  return { employees, timeSlots, shifts, loading, initialLoading, fetchAll, addEmployee, removeEmployee, saveSlot, removeSlot, addShifts, addShiftBatch, updateShift, deleteShift, deleteShiftWithUndo, restoreDeletedShift, moveShift, shiftsForDay };
 }
 
 // ─── Role column inside a day cell (used in side-by-side layout) ─
-function RoleColumn({ label, shifts, compact, skeleton }: { label: string; shifts: Shift[]; compact?: boolean; skeleton?: boolean }) {
+function RoleColumn({ label, shifts, compact, skeleton, draggable, onDragStartShift, onDragEndShift }: { label: string; shifts: Shift[]; compact?: boolean; skeleton?: boolean; draggable?: boolean; onDragStartShift?:(id:string)=>void; onDragEndShift?:()=>void }) {
   const displayed = compact ? shifts.slice(0,2) : shifts;
   return (
     <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:1,padding:"0 2px"}}>
@@ -305,21 +366,29 @@ function RoleColumn({ label, shifts, compact, skeleton }: { label: string; shift
         ? <div style={{height:compact?10:12}}/>
         : displayed.map(s=>(
             compact ? (
-              <div key={s.id} className="entry-pop" style={{
+              <div key={s.id} className="entry-pop" draggable={draggable}
+                onDragStart={e=>{e.stopPropagation();onDragStartShift?.(s.id);}}
+                onDragEnd={()=>onDragEndShift?.()}
+                style={{
                 height:18, lineHeight:"18px", padding:"0 3px", borderRadius:3,
                 background: hexToRgba(s.timeSlotColor, 0.18),
                 borderLeft:`3px solid ${s.timeSlotColor}`,
                 fontSize:9, fontWeight:600, color:"var(--text)",
                 whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                cursor: draggable?"grab":undefined,
               }}>
                 {s.employeeName}
               </div>
             ) : (
-              <div key={s.id} className="entry-pop" style={{
+              <div key={s.id} className="entry-pop" draggable={draggable}
+                onDragStart={e=>{e.stopPropagation();onDragStartShift?.(s.id);}}
+                onDragEnd={()=>onDragEndShift?.()}
+                style={{
                 padding:"3px 4px", borderRadius:3,
                 background: hexToRgba(s.timeSlotColor, 0.18),
                 borderLeft:`3px solid ${s.timeSlotColor}`,
                 lineHeight:1.3,
+                cursor: draggable?"grab":undefined,
               }}>
                 <div style={{fontSize:10,fontWeight:600,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.employeeName}</div>
                 <div style={{fontSize:9,color:"var(--text-2)",fontFamily:"monospace"}}>{s.timeSlotStart}–{s.timeSlotEnd}</div>
@@ -333,12 +402,12 @@ function RoleColumn({ label, shifts, compact, skeleton }: { label: string; shift
 }
 
 // ─── Two-column Server|Cook row for a cell ────────────────────
-function RoleSplit({ servers, cooks, compact, skeleton }: { servers: Shift[]; cooks: Shift[]; compact?: boolean; skeleton?: boolean }) {
+function RoleSplit({ servers, cooks, compact, skeleton, draggable, onDragStartShift, onDragEndShift }: { servers: Shift[]; cooks: Shift[]; compact?: boolean; skeleton?: boolean; draggable?: boolean; onDragStartShift?:(id:string)=>void; onDragEndShift?:()=>void }) {
   return (
     <div style={{display:"flex",flex:1,minWidth:0,gap:0,marginTop:2}}>
-      <RoleColumn label="Server" shifts={servers} compact={compact} skeleton={skeleton}/>
+      <RoleColumn label="Server" shifts={servers} compact={compact} skeleton={skeleton} draggable={draggable} onDragStartShift={onDragStartShift} onDragEndShift={onDragEndShift}/>
       <div style={{width:1,background:"var(--border)",flexShrink:0,alignSelf:"stretch"}}/>
-      <RoleColumn label="Cook" shifts={cooks} compact={compact} skeleton={skeleton}/>
+      <RoleColumn label="Cook" shifts={cooks} compact={compact} skeleton={skeleton} draggable={draggable} onDragStartShift={onDragStartShift} onDragEndShift={onDragEndShift}/>
     </div>
   );
 }
@@ -572,8 +641,8 @@ function ExportModal({ employees, rangeStart, rangeEnd, onClose }: {
 }
 
 // ─── Calendar header nav ──────────────────────────────────────
-function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExport, isMobile }:
-  { label:string; onPrev:()=>void; onNext:()=>void; onToday:()=>void; viewMode:ViewMode; setViewMode:(v:ViewMode)=>void; onExport:()=>void; isMobile:boolean }) {
+function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExport, onPrint, onTemplates, onCopyWeek, isMobile, isManager }:
+  { label:string; onPrev:()=>void; onNext:()=>void; onToday:()=>void; viewMode:ViewMode; setViewMode:(v:ViewMode)=>void; onExport:()=>void; onPrint:()=>void; onTemplates:()=>void; onCopyWeek:()=>void; isMobile:boolean; isManager:boolean }) {
   return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -582,7 +651,7 @@ function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExpor
         <button className="icon-btn" onClick={onNext}><Icon.chevR/></button>
         <button onClick={onToday} style={{padding:"4px 10px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-2)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Today</button>
       </div>
-      <div style={{display:"flex",gap:6}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <div style={{display:"flex",borderRadius:8,border:"1px solid var(--border)",overflow:"hidden"}}>
           {(["month","week"] as ViewMode[]).map(v=>(
             <button key={v} onClick={()=>setViewMode(v)} style={{padding:"5px 10px",border:"none",background:viewMode===v?"var(--accent)":"var(--surface)",color:viewMode===v?"#fff":"var(--text-2)",fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
@@ -590,7 +659,182 @@ function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExpor
             </button>
           ))}
         </div>
+        {isManager && viewMode==="week" && (
+          <button onClick={onCopyWeek} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Copy previous week"><Icon.copy/></button>
+        )}
+        {isManager && viewMode==="week" && (
+          <button onClick={onTemplates} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Shift templates"><Icon.template/></button>
+        )}
+        <button onClick={onPrint} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Print"><Icon.print/></button>
         <button onClick={onExport} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Export"><Icon.download/></button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Toast (undo notifications) ────────────────────────────────
+function Toast({ message, actionLabel, onAction, onDismiss }: { message:string; actionLabel?:string; onAction?:()=>void; onDismiss:()=>void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 6000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+  return (
+    <div className="toast-pop" style={{
+      position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)", zIndex:300,
+      background:"var(--text)", color:"var(--bg)", borderRadius:10, padding:"10px 16px",
+      display:"flex", alignItems:"center", gap:14, fontSize:13, fontWeight:500,
+      boxShadow:"0 8px 24px rgba(0,0,0,0.25)", maxWidth:"calc(100vw - 32px)",
+    }}>
+      <span>{message}</span>
+      {actionLabel && onAction && (
+        <button onClick={()=>{onAction();onDismiss();}} style={{background:"none",border:"none",color:"var(--accent)",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:0}}>{actionLabel}</button>
+      )}
+      <button onClick={onDismiss} style={{background:"none",border:"none",color:"var(--bg)",opacity:0.6,cursor:"pointer",display:"flex",padding:0}}><Icon.x/></button>
+    </div>
+  );
+}
+
+// ─── QR / Share modal ───────────────────────────────────────────
+function ShareModal({ employees, onClose }: { employees: Employee[]; onClose: ()=>void }) {
+  const [selEmp, setSelEmp] = useState<string>(employees[0]?.id ?? "");
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const link = selEmp ? `${origin}/my-schedule?id=${selEmp}` : "";
+  const qrUrl = link ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(link)}` : "";
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-box" style={{maxWidth:380}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title" style={{display:"flex",alignItems:"center",gap:8}}><Icon.qr/> Share Schedule</span>
+          <button className="icon-btn" onClick={onClose}><Icon.x/></button>
+        </div>
+        <div style={{padding:"16px 20px 20px",display:"flex",flexDirection:"column",gap:14}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.6px",marginBottom:8}}>Employee</div>
+            <select value={selEmp} onChange={e=>setSelEmp(e.target.value)}
+              style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text)",fontSize:13,fontFamily:"inherit",outline:"none"}}>
+              {employees.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+              {employees.length===0 && <option value="">No employees</option>}
+            </select>
+          </div>
+          {selEmp && (
+            <>
+              <div style={{display:"flex",justifyContent:"center",padding:"12px",background:"#fff",borderRadius:12}}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={qrUrl} width={180} height={180} alt="QR code for personal schedule" style={{display:"block"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.6px",marginBottom:8}}>Shareable Link</div>
+                <div style={{display:"flex",gap:8}}>
+                  <input readOnly value={link} onClick={e=>(e.target as HTMLInputElement).select()}
+                    style={{flex:1,padding:"8px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text)",fontSize:11,fontFamily:"monospace",outline:"none"}}/>
+                  <button onClick={()=>navigator.clipboard.writeText(link)} className="btn-primary"
+                    style={{padding:"8px 14px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+                    <Icon.copy/> Copy
+                  </button>
+                </div>
+                <p style={{fontSize:11,color:"var(--text-3)",margin:"8px 0 0",lineHeight:1.5}}>
+                  This link shows a read-only view of this employee&apos;s upcoming shifts — no password needed. They can also subscribe to a personal calendar feed from that page.
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Templates modal ─────────────────────────────────────────
+type TemplateEntry = { dayOffset:number; employeeId:string; timeSlotId:string; role:string };
+type Template = { id:string; name:string; data:string };
+
+function TemplatesModal({ templates, currentWeekShifts, weekStart, employees, timeSlots, onSaveTemplate, onApplyTemplate, onDeleteTemplate, onClose }: {
+  templates: Template[];
+  currentWeekShifts: Shift[];
+  weekStart: Date;
+  employees: Employee[];
+  timeSlots: TimeSlot[];
+  onSaveTemplate: (name:string, entries:TemplateEntry[])=>Promise<void>;
+  onApplyTemplate: (entries:TemplateEntry[])=>Promise<void>;
+  onDeleteTemplate: (id:string)=>Promise<void>;
+  onClose: ()=>void;
+}) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [applying, setApplying] = useState<string|null>(null);
+
+  const handleSaveCurrentWeek = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    const entries: TemplateEntry[] = currentWeekShifts.map(s => {
+      const dayOffset = Math.round((parseISO(s.date).getTime() - weekStart.getTime()) / 86400000);
+      return { dayOffset, employeeId: s.employeeId, timeSlotId: s.timeSlotId, role: s.role };
+    });
+    await onSaveTemplate(name.trim(), entries);
+    setName(""); setSaving(false);
+  };
+
+  const handleApply = async (t: Template) => {
+    setApplying(t.id);
+    try {
+      const entries: TemplateEntry[] = JSON.parse(t.data);
+      await onApplyTemplate(entries);
+    } finally {
+      setApplying(null);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-box" style={{maxWidth:440}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title" style={{display:"flex",alignItems:"center",gap:8}}><Icon.template/> Shift Templates</span>
+          <button className="icon-btn" onClick={onClose}><Icon.x/></button>
+        </div>
+        <div style={{padding:"16px 20px 20px",display:"flex",flexDirection:"column",gap:16}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.6px",marginBottom:8}}>Save Current Week as Template</div>
+            <div style={{display:"flex",gap:8}}>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Template name (e.g. Standard Week)"
+                style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text)",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+              <button onClick={handleSaveCurrentWeek} disabled={saving||!name.trim()||currentWeekShifts.length===0} className="btn-primary"
+                style={{padding:"8px 14px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",opacity:(saving||!name.trim()||currentWeekShifts.length===0)?0.4:1,display:"flex",alignItems:"center",gap:6,fontFamily:"inherit"}}>
+                <Icon.save/> Save
+              </button>
+            </div>
+            {currentWeekShifts.length===0 && <p style={{fontSize:11,color:"var(--text-3)",margin:"6px 0 0"}}>This week has no shifts to save.</p>}
+          </div>
+
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.6px",marginBottom:8}}>Apply Template to This Week</div>
+            {templates.length===0 && <p style={{fontSize:12,color:"var(--text-3)",margin:0}}>No templates saved yet.</p>}
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {templates.map(t=>{
+                let count = 0;
+                try { count = JSON.parse(t.data).length; } catch {}
+                return (
+                  <div key={t.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)"}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600}}>{t.name}</div>
+                      <div style={{fontSize:11,color:"var(--text-2)"}}>{count} shift{count!==1?"s":""}</div>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>handleApply(t)} disabled={applying===t.id} className="btn-primary"
+                        style={{padding:"6px 12px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",opacity:applying===t.id?0.5:1,fontFamily:"inherit"}}>
+                        {applying===t.id?"Applying…":"Apply"}
+                      </button>
+                      <button onClick={()=>onDeleteTemplate(t.id)} style={{width:32,height:32,borderRadius:8,border:"1px solid var(--border)",background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--danger)"}}><Icon.trash/></button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p style={{fontSize:11,color:"var(--text-3)",margin:"8px 0 0",lineHeight:1.5}}>
+              Applying a template adds its shifts to the current week, keeping the same days of the week (Mon–Sun) and employees. Existing shifts aren&apos;t removed.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -617,6 +861,56 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
   const [editingSlot,  setEditingSlot]  = useState<TimeSlot|null>(null);
   const [newSlot,      setNewSlot]      = useState({label:"",startTime:"09:00",endTime:"17:00",color:"#6366f1"});
   const [showExport,   setShowExport]   = useState(false);
+  const [showShare,    setShowShare]    = useState(false);
+  const [showTemplates,setShowTemplates]= useState(false);
+  const [templates,    setTemplates]    = useState<Template[]>([]);
+  const [toast,        setToast]        = useState<{message:string; actionLabel?:string; onAction?:()=>void}|null>(null);
+  const [dragShiftId,  setDragShiftId]  = useState<string|null>(null);
+  const [dragOverDay,  setDragOverDay]  = useState<string|null>(null);
+
+  const loadTemplates = useCallback(async () => {
+    const res = await fetch("/api/templates");
+    if (res.ok) setTemplates(await res.json());
+  }, []);
+  useEffect(()=>{ loadTemplates(); },[loadTemplates]);
+
+  const handleSaveTemplate = async (name:string, entries:TemplateEntry[]) => {
+    await fetch("/api/templates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,data:entries})});
+    await loadTemplates();
+  };
+  const handleDeleteTemplate = async (id:string) => {
+    await fetch("/api/templates",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    await loadTemplates();
+  };
+  const handleApplyTemplate = async (entries:TemplateEntry[]) => {
+    const weekMonday = startOfWeek(anchor,{weekStartsOn:1});
+    const batch = entries.map(e=>({
+      employeeId: e.employeeId, timeSlotId: e.timeSlotId, role: e.role,
+      date: format(new Date(weekMonday.getTime() + e.dayOffset*86400000), "yyyy-MM-dd"),
+    }));
+    await data.addShiftBatch(batch);
+    setShowTemplates(false);
+    setToast({message:`Applied template — ${batch.length} shift${batch.length!==1?"s":""} added.`});
+  };
+
+  const handleCopyPreviousWeek = async () => {
+    requireManager(async () => {
+      const prevWeekStart = format(subWeeks(startOfWeek(anchor,{weekStartsOn:1}),1),"yyyy-MM-dd");
+      const prevWeekEnd   = format(subWeeks(endOfWeek(anchor,{weekStartsOn:1}),1),"yyyy-MM-dd");
+      const res = await fetch(`/api/shifts?start=${prevWeekStart}&end=${prevWeekEnd}`);
+      const prevShifts: Shift[] = await res.json();
+      if (prevShifts.length===0) { setToast({message:"No shifts found in the previous week."}); return; }
+      const thisWeekStart = startOfWeek(anchor,{weekStartsOn:1});
+      const batch = prevShifts.map(s=>{
+        const offset = Math.round((parseISO(s.date).getTime() - parseISO(prevWeekStart).getTime())/86400000);
+        return { employeeId:s.employeeId, timeSlotId:s.timeSlotId, role:s.role, date: format(new Date(thisWeekStart.getTime()+offset*86400000),"yyyy-MM-dd") };
+      });
+      await data.addShiftBatch(batch);
+      setToast({message:`Copied ${batch.length} shift${batch.length!==1?"s":""} from last week.`});
+    });
+  };
+
+  const handlePrint = () => { window.print(); };
 
   const rangeStart = viewMode==="month"
     ? format(startOfMonth(anchor),"yyyy-MM-dd")
@@ -626,6 +920,9 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
     : format(endOfWeek(anchor,{weekStartsOn:1}),"yyyy-MM-dd");
 
   const data = useSchedulerData(rangeStart, rangeEnd);
+
+  const currentWeekShifts = viewMode==="week" ? data.shifts : [];
+  const weekStartDate = startOfWeek(anchor,{weekStartsOn:1});
 
   const requireManager = (action:()=>void) => {
     if (isManager) { action(); return; }
@@ -662,20 +959,26 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
     const inMonth = isSameMonth(day,anchor);
     const isToday = isSameDay(day,today);
     const isSelected = !!(selectedDay&&isSameDay(day,selectedDay));
+    const dayStr = format(day,"yyyy-MM-dd");
     const ds = data.shiftsForDay(day);
     const servers = ds.filter(s=>s.role==="Server");
     const cooks   = ds.filter(s=>s.role==="Cook");
+    const isDragOver = dragOverDay===dayStr;
     return (
       <div onClick={()=>{ if(inMonth){ openDay(day); } }}
+        onDragOver={e=>{e.preventDefault();setDragOverDay(dayStr);}}
+        onDragLeave={()=>setDragOverDay(null)}
+        onDrop={async e=>{e.preventDefault();setDragOverDay(null);if(dragShiftId){await data.moveShift(dragShiftId,dayStr);setDragShiftId(null);}}}
         className={`day-cell${isSelected?" day-cell-selected":""}`}
-        style={{background:isSelected?"var(--surface2)":"var(--surface)",
+        style={{background:isDragOver?"var(--accent-light)":isSelected?"var(--surface2)":"var(--surface)",
           minHeight:110,padding:"6px 5px 4px",cursor:inMonth?"pointer":"default",opacity:inMonth?1:0.3,
-          display:"flex",flexDirection:"column",gap:2}}
+          display:"flex",flexDirection:"column",gap:2,transition:"background-color 0.15s ease"}}
       >
         <div style={{display:"flex",justifyContent:"flex-end",marginBottom:2}}>
           <span style={{fontSize:11,fontWeight:isToday?700:400,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)",transition:"background-color 0.2s ease"}}>{format(day,"d")}</span>
         </div>
-        <RoleSplit servers={servers} cooks={cooks} compact skeleton={data.initialLoading}/>
+        <RoleSplit servers={servers} cooks={cooks} compact skeleton={data.initialLoading}
+          draggable={isManager} onDragStartShift={id=>{setDragShiftId(id);}} onDragEndShift={()=>{setDragShiftId(null);setDragOverDay(null);}}/>
       </div>
     );
   };
@@ -684,21 +987,27 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
   const WeekCell = ({ day }: { day:Date }) => {
     const isToday = isSameDay(day,today);
     const isSelected = !!(selectedDay&&isSameDay(day,selectedDay));
+    const dayStr = format(day,"yyyy-MM-dd");
     const ds = data.shiftsForDay(day);
     const servers = ds.filter(s=>s.role==="Server");
     const cooks   = ds.filter(s=>s.role==="Cook");
+    const isDragOver = dragOverDay===dayStr;
     return (
       <div onClick={()=>openDay(day)}
+        onDragOver={e=>{e.preventDefault();setDragOverDay(dayStr);}}
+        onDragLeave={()=>setDragOverDay(null)}
+        onDrop={async e=>{e.preventDefault();setDragOverDay(null);if(dragShiftId){await data.moveShift(dragShiftId,dayStr);setDragShiftId(null);}}}
         className={`day-cell${isSelected?" day-cell-selected":""}`}
-        style={{background:isSelected?"var(--surface2)":"var(--surface)",
+        style={{background:isDragOver?"var(--accent-light)":isSelected?"var(--surface2)":"var(--surface)",
           flex:1,minHeight:280,padding:"8px 6px 6px",cursor:"pointer",
-          display:"flex",flexDirection:"column",gap:3}}
+          display:"flex",flexDirection:"column",gap:3,transition:"background-color 0.15s ease"}}
       >
         <div style={{textAlign:"center",marginBottom:4}}>
           <div style={{fontSize:10,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.5px"}}>{format(day,"EEE")}</div>
           <div style={{width:26,height:26,borderRadius:"50%",background:isToday?"var(--accent)":"transparent",color:isToday?"#fff":"var(--text)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:isToday?700:500,margin:"2px auto 0",transition:"background-color 0.2s ease"}}>{format(day,"d")}</div>
         </div>
-        <RoleSplit servers={servers} cooks={cooks} skeleton={data.initialLoading}/>
+        <RoleSplit servers={servers} cooks={cooks} skeleton={data.initialLoading}
+          draggable={isManager} onDragStartShift={id=>{setDragShiftId(id);}} onDragEndShift={()=>{setDragShiftId(null);setDragOverDay(null);}}/>
       </div>
     );
   };
@@ -707,6 +1016,14 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
     <div style={{minHeight:"100vh",background:"var(--bg)",color:"var(--text)"}}>
       {showPw && <PasswordModal onSuccess={()=>{setIsManager(true);setShowPw(false);if(pending){pending();setPending(null);}}} onCancel={()=>{setShowPw(false);setPending(null);}}/>}
       {showExport && <ExportModal employees={data.employees} rangeStart={rangeStart} rangeEnd={rangeEnd} onClose={()=>setShowExport(false)}/>}
+      {showShare && <ShareModal employees={data.employees} onClose={()=>setShowShare(false)}/>}
+      {showTemplates && (
+        <TemplatesModal templates={templates} currentWeekShifts={currentWeekShifts} weekStart={weekStartDate}
+          employees={data.employees} timeSlots={data.timeSlots}
+          onSaveTemplate={handleSaveTemplate} onApplyTemplate={handleApplyTemplate} onDeleteTemplate={handleDeleteTemplate}
+          onClose={()=>setShowTemplates(false)}/>
+      )}
+      {toast && <Toast message={toast.message} actionLabel={toast.actionLabel} onAction={toast.onAction} onDismiss={()=>setToast(null)}/>}
 
       {/* Header */}
       <header style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56}}>
@@ -722,6 +1039,9 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
           </nav>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setShowShare(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"inherit"}}>
+            <Icon.qr/> Share
+          </button>
           {isManager&&(
             <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:20,background:"var(--accent-light)",color:"var(--accent)",fontSize:11,fontWeight:600}}>
               <Icon.unlock/> Manager
@@ -742,7 +1062,10 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
             <div style={{flex:1,minWidth:0}}>
               <CalNav label={nav.label} onPrev={nav.prev} onNext={nav.next} onToday={nav.today}
                 viewMode={viewMode} setViewMode={setViewMode}
-                onExport={()=>setShowExport(true)} isMobile={false}/>
+                onExport={()=>setShowExport(true)} onPrint={handlePrint}
+                onTemplates={()=>requireManager(()=>setShowTemplates(true))}
+                onCopyWeek={handleCopyPreviousWeek}
+                isMobile={false} isManager={isManager}/>
 
               {/* Day headers — month view only (week cells render their own labels) */}
               {viewMode==="month" && (
@@ -776,7 +1099,10 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
                     isManager={isManager}
                     onCreateShift={()=>requireManager(()=>setPanelMode("create"))}
                     onEditShift={s=>{setEditingShift(s);setPanelMode("edit");}}
-                    onDeleteShift={async id=>{await data.deleteShift(id);}}
+                    onDeleteShift={async id=>{
+                      const removed = await data.deleteShiftWithUndo(id);
+                      if (removed) setToast({message:`Shift deleted.`, actionLabel:"Undo", onAction:()=>data.restoreDeletedShift(removed)});
+                    }}
                     onClose={()=>setSelectedDay(null)}
                   />
                 )}
@@ -909,6 +1235,8 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
         @keyframes popIn{from{opacity:0;transform:scale(0.85);}to{opacity:1;transform:scale(1);}}
         @keyframes bounce{0%{transform:scale(1);}40%{transform:scale(1.08);}100%{transform:scale(1);}}
         @keyframes spinIn{from{opacity:0;transform:rotate(-90deg) scale(0.6);}to{opacity:1;transform:rotate(0deg) scale(1);}}
+        .toast-pop{animation:toastIn 0.25s ease;}
+        @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(16px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
       `}</style>
     </div>
   );
@@ -933,6 +1261,51 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
   const [editingSlot,   setEditingSlot]  = useState<TimeSlot|null>(null);
   const [newSlot,       setNewSlot]      = useState({label:"",startTime:"09:00",endTime:"17:00",color:"#6366f1"});
   const [showExport,    setShowExport]   = useState(false);
+  const [showShare,     setShowShare]    = useState(false);
+  const [showTemplates, setShowTemplates]= useState(false);
+  const [templates,     setTemplates]    = useState<Template[]>([]);
+  const [toast,         setToast]        = useState<{message:string;actionLabel?:string;onAction?:()=>void}|null>(null);
+
+  const loadTemplates = useCallback(async () => {
+    const res = await fetch("/api/templates");
+    if (res.ok) setTemplates(await res.json());
+  }, []);
+  useEffect(()=>{ loadTemplates(); },[loadTemplates]);
+
+  const handleSaveTemplate = async (name:string, entries:TemplateEntry[]) => {
+    await fetch("/api/templates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,data:entries})});
+    await loadTemplates();
+  };
+  const handleDeleteTemplate = async (id:string) => {
+    await fetch("/api/templates",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    await loadTemplates();
+  };
+  const handleApplyTemplate = async (entries:TemplateEntry[]) => {
+    const weekMonday = startOfWeek(anchor,{weekStartsOn:1});
+    const batch = entries.map(e=>({
+      employeeId:e.employeeId, timeSlotId:e.timeSlotId, role:e.role,
+      date:format(new Date(weekMonday.getTime()+e.dayOffset*86400000),"yyyy-MM-dd"),
+    }));
+    await data.addShiftBatch(batch);
+    setShowTemplates(false);
+    setToast({message:`Applied template — ${batch.length} shift${batch.length!==1?"s":""} added.`});
+  };
+  const handleCopyPreviousWeek = async () => {
+    requireManager(async () => {
+      const prevWeekStart = format(subWeeks(startOfWeek(anchor,{weekStartsOn:1}),1),"yyyy-MM-dd");
+      const prevWeekEnd   = format(subWeeks(endOfWeek(anchor,{weekStartsOn:1}),1),"yyyy-MM-dd");
+      const res = await fetch(`/api/shifts?start=${prevWeekStart}&end=${prevWeekEnd}`);
+      const prevShifts: Shift[] = await res.json();
+      if (prevShifts.length===0){setToast({message:"No shifts found in previous week."});return;}
+      const thisWeekStart = startOfWeek(anchor,{weekStartsOn:1});
+      const batch = prevShifts.map(s=>{
+        const offset = Math.round((parseISO(s.date).getTime()-parseISO(prevWeekStart).getTime())/86400000);
+        return {employeeId:s.employeeId,timeSlotId:s.timeSlotId,role:s.role,date:format(new Date(thisWeekStart.getTime()+offset*86400000),"yyyy-MM-dd")};
+      });
+      await data.addShiftBatch(batch);
+      setToast({message:`Copied ${batch.length} shift${batch.length!==1?"s":""} from last week.`});
+    });
+  };
 
   const rangeStart = viewMode==="month"
     ? format(startOfMonth(anchor),"yyyy-MM-dd")
@@ -942,6 +1315,9 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
     : format(endOfWeek(anchor,{weekStartsOn:1}),"yyyy-MM-dd");
 
   const data = useSchedulerData(rangeStart, rangeEnd);
+
+  const currentWeekShifts = viewMode==="week" ? data.shifts : [];
+  const weekStartDate = startOfWeek(anchor,{weekStartsOn:1});
 
   const requireManager = (action:()=>void) => {
     if (isManager) { action(); return; }
@@ -987,13 +1363,24 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
     <div style={{height:"100vh",overflow:"hidden",background:"var(--bg)",color:"var(--text)",display:"flex",flexDirection:"column"}}>
       {showPw&&<PasswordModal onSuccess={()=>{setIsManager(true);setShowPw(false);if(pending){pending();setPending(null);}}} onCancel={()=>{setShowPw(false);setPending(null);}}/>}
       {showExport&&<ExportModal employees={data.employees} rangeStart={rangeStart} rangeEnd={rangeEnd} onClose={()=>setShowExport(false)}/>}
+      {showShare&&<ShareModal employees={data.employees} onClose={()=>setShowShare(false)}/>}
+      {showTemplates&&(
+        <TemplatesModal templates={templates} currentWeekShifts={currentWeekShifts} weekStart={weekStartDate}
+          employees={data.employees} timeSlots={data.timeSlots}
+          onSaveTemplate={handleSaveTemplate} onApplyTemplate={handleApplyTemplate} onDeleteTemplate={handleDeleteTemplate}
+          onClose={()=>setShowTemplates(false)}/>
+      )}
+      {toast&&<Toast message={toast.message} actionLabel={toast.actionLabel} onAction={toast.onAction} onDismiss={()=>setToast(null)}/>}
 
       {/* Top bar */}
       <header style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52,flexShrink:0}}>
         <span style={{fontSize:15,fontWeight:700,letterSpacing:"-0.3px"}}>
           {tab==="calendar"?nav.label:tab==="employees"?"Employees":"Time Slots"}
         </span>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <button onClick={()=>setShowShare(true)} style={{width:34,height:34,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-2)"}}>
+            <Icon.qr/>
+          </button>
           {isManager&&(
             <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,background:"var(--accent-light)",color:"var(--accent)",fontSize:11,fontWeight:600}}>
               <Icon.unlock/> Mgr
@@ -1012,7 +1399,10 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
           style={{padding:"12px 10px 0",display:"flex",flexDirection:"column",height:"calc(100vh - 52px - 60px)"}}>
           <CalNav label={nav.label} onPrev={nav.prev} onNext={nav.next} onToday={nav.today}
             viewMode={viewMode} setViewMode={setViewMode}
-            onExport={()=>setShowExport(true)} isMobile={true}/>
+            onExport={()=>setShowExport(true)} onPrint={()=>window.print()}
+            onTemplates={()=>requireManager(()=>setShowTemplates(true))}
+            onCopyWeek={handleCopyPreviousWeek}
+            isMobile={true} isManager={isManager}/>
           <div key={anchor.toString()+viewMode} className="cal-fade" style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
 
           {/* Day headers — month view only (Mon–Sun) */}
@@ -1194,7 +1584,10 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
                 isManager={isManager}
                 onCreateShift={()=>requireManager(()=>setSheet("create"))}
                 onEditShift={s=>{setEditingShift(s);setSheet("edit");}}
-                onDeleteShift={async id=>{await data.deleteShift(id);}}
+                onDeleteShift={async id=>{
+                  const removed = await data.deleteShiftWithUndo(id);
+                  if(removed) setToast({message:"Shift deleted.",actionLabel:"Undo",onAction:()=>data.restoreDeletedShift(removed)});
+                }}
                 onClose={closeSheet}
               />
             </div>
@@ -1229,7 +1622,11 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
                 initialShift={editingShift} date={editingShift.date}
                 onSave={async(empIds,slotId,role)=>{await data.updateShift(editingShift.id,empIds[0],editingShift.date,slotId,role);setSheet("day");}}
                 onCancel={()=>setSheet("day")}/>
-              <button onClick={async()=>{await data.deleteShift(editingShift.id);setSheet("day");}}
+              <button onClick={async()=>{
+                const removed = await data.deleteShiftWithUndo(editingShift.id);
+                if(removed) setToast({message:"Shift deleted.",actionLabel:"Undo",onAction:()=>data.restoreDeletedShift(removed)});
+                setSheet("day");
+              }}
                 style={{width:"100%",marginTop:10,padding:"12px",borderRadius:12,border:"1px solid var(--danger)",background:"var(--danger-light)",color:"var(--danger)",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
                 Delete Shift
               </button>
@@ -1301,6 +1698,8 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
         @keyframes popIn{from{opacity:0;transform:scale(0.85);}to{opacity:1;transform:scale(1);}}
         @keyframes bounce{0%{transform:scale(1);}40%{transform:scale(1.08);}100%{transform:scale(1);}}
         @keyframes spinIn{from{opacity:0;transform:rotate(-90deg) scale(0.6);}to{opacity:1;transform:rotate(0deg) scale(1);}}
+        .toast-pop{animation:toastIn 0.25s ease;}
+        @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(16px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
       `}</style>
     </div>
   );
