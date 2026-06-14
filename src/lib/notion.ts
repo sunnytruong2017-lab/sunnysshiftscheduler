@@ -1,138 +1,169 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+import { Client } from "@notionhq/client";
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap');
+export const notion = new Client({ auth: process.env.NOTION_TOKEN });
 
-*, *::before, *::after { box-sizing: border-box; }
+export const EMPLOYEES_DB = process.env.NOTION_EMPLOYEES_DB!;
+export const TIMESLOTS_DB = process.env.NOTION_TIMESLOTS_DB!;
+export const SHIFTS_DB    = process.env.NOTION_SHIFTS_DB!;
+export const TEMPLATES_DB = process.env.NOTION_TEMPLATES_DB!;
 
-:root {
-  --bg: #f7f6f3;
-  --surface: #ffffff;
-  --surface2: #f0efe9;
-  --border: #e2e0d8;
-  --text: #1a1917;
-  --text-2: #6b6860;
-  --text-3: #9b9890;
-  --accent: #2d6a4f;
-  --accent-light: #d8f3dc;
-  --accent-hover: #1b4332;
-  --danger: #c0392b;
-  --danger-light: #fdecea;
-  --chip-1: #e8f4f8; --chip-1-text: #1a6b8a;
-  --chip-2: #fef3cd; --chip-2-text: #856404;
-  --chip-3: #fde8d8; --chip-3-text: #8c4a2f;
-  --chip-4: #e8e4f8; --chip-4-text: #4a3a8c;
-  --chip-5: #fde8f0; --chip-5-text: #8c3a5c;
-  --chip-6: #e4f8e8; --chip-6-text: #2d6a3a;
+// ─── Employees ────────────────────────────────────────────────
+export async function getEmployees() {
+  const res = await notion.databases.query({
+    database_id: EMPLOYEES_DB,
+    filter: { property: "Active", checkbox: { equals: true } },
+    sorts: [{ property: "Name", direction: "ascending" }],
+  });
+  return res.results.map((p: any) => ({
+    id:   p.id,
+    name: p.properties.Name?.title?.[0]?.plain_text ?? "",
+  }));
 }
 
-.dark {
-  --bg: #111110;
-  --surface: #1c1c1a;
-  --surface2: #242422;
-  --border: #2e2e2b;
-  --text: #f0ede8;
-  --text-2: #8a8780;
-  --text-3: #5a5854;
-  --accent: #52b788;
-  --accent-light: #1a3d2b;
-  --accent-hover: #74c69d;
-  --danger: #e74c3c;
-  --danger-light: #2d1a1a;
-  --chip-1: #1a3040; --chip-1-text: #7ec8e3;
-  --chip-2: #2d2510; --chip-2-text: #f0c040;
-  --chip-3: #2d1c10; --chip-3-text: #e8906a;
-  --chip-4: #1c1830; --chip-4-text: #a090e0;
-  --chip-5: #2d1820; --chip-5-text: #e088b0;
-  --chip-6: #182d1c; --chip-6-text: #70c880;
+export async function addEmployee(name: string) {
+  return notion.pages.create({
+    parent: { database_id: EMPLOYEES_DB },
+    properties: {
+      Name:   { title: [{ text: { content: name } }] },
+      Active: { checkbox: true },
+    },
+  });
 }
 
-body {
-  font-family: 'DM Sans', sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  transition: background 0.2s, color 0.2s;
-  margin: 0;
+export async function removeEmployee(id: string) {
+  return notion.pages.update({ page_id: id, properties: { Active: { checkbox: false } } });
 }
 
-.mono { font-family: 'DM Mono', monospace; }
-
-/* ── Mobile bottom sheet ── */
-.bottom-sheet-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  z-index: 200; display: flex; align-items: flex-end;
-  backdrop-filter: blur(2px);
-  animation: fadeIn 0.15s ease;
-}
-.bottom-sheet {
-  background: var(--surface); border-radius: 20px 20px 0 0;
-  width: 100%; max-height: 90vh; overflow-y: auto;
-  padding-bottom: env(safe-area-inset-bottom, 16px);
-  animation: slideUp 0.25s ease;
-}
-.bottom-sheet-handle {
-  width: 36px; height: 4px; border-radius: 2px;
-  background: var(--border); margin: 12px auto 4px; flex-shrink: 0;
-}
-@keyframes slideUp {
-  from { transform: translateY(100%); }
-  to   { transform: translateY(0); }
-}
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+// ─── Time Slots ───────────────────────────────────────────────
+export async function getTimeSlots() {
+  const res = await notion.databases.query({
+    database_id: TIMESLOTS_DB,
+    filter: { property: "Active", checkbox: { equals: true } },
+  });
+  return res.results.map((p: any) => ({
+    id:        p.id,
+    label:     p.properties.Label?.title?.[0]?.plain_text ?? "",
+    startTime: p.properties["Start Time"]?.rich_text?.[0]?.plain_text ?? "",
+    endTime:   p.properties["End Time"]?.rich_text?.[0]?.plain_text ?? "",
+    color:     p.properties["Color"]?.rich_text?.[0]?.plain_text ?? "#6366f1",
+  }));
 }
 
-/* ── Mobile nav bar ── */
-.mobile-nav {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  height: calc(60px + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: var(--surface); border-top: 1px solid var(--border);
-  display: flex; align-items: flex-start; justify-content: space-around;
-  padding-top: 8px; z-index: 100;
-}
-.mobile-nav-btn {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  background: none; border: none; cursor: pointer; color: var(--text-3);
-  font-family: inherit; font-size: 10px; font-weight: 500; padding: 0 16px;
-  transition: color 0.15s;
-}
-.mobile-nav-btn.active { color: var(--accent); }
-
-/* ── Mobile calendar ── */
-.mobile-cal-grid {
-  display: grid; grid-template-columns: repeat(7,1fr); gap: 1px;
-  background: var(--border); border-radius: 12px; overflow: hidden;
-}
-.mobile-cal-cell {
-  background: var(--surface); min-height: 54px; padding: 5px 4px 4px;
-  cursor: pointer; transition: background 0.1s; position: relative;
-}
-.mobile-cal-cell:active { background: var(--surface2); }
-.mobile-cal-cell.out-of-month { opacity: 0.3; cursor: default; }
-
-/* ── Misc mobile ── */
-.mobile-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 7px; border-radius: 20px; font-size: 11px; font-weight: 600;
+export async function addTimeSlot(label: string, startTime: string, endTime: string, color: string) {
+  return notion.pages.create({
+    parent: { database_id: TIMESLOTS_DB },
+    properties: {
+      Label:          { title: [{ text: { content: label } }] },
+      "Start Time":   { rich_text: [{ text: { content: startTime } }] },
+      "End Time":     { rich_text: [{ text: { content: endTime } }] },
+      "Color":        { rich_text: [{ text: { content: color } }] },
+      Active:         { checkbox: true },
+    },
+  });
 }
 
-/* ── Print styles ── */
-@media print {
-  header, nav, .mobile-nav, button, .modal-backdrop { display: none !important; }
-  body { background: #fff !important; color: #000 !important; }
-  .day-cell { break-inside: avoid; }
-  * { animation: none !important; transition: none !important; }
+export async function updateTimeSlot(id: string, label: string, startTime: string, endTime: string, color: string) {
+  return notion.pages.update({
+    page_id: id,
+    properties: {
+      Label:        { title: [{ text: { content: label } }] },
+      "Start Time": { rich_text: [{ text: { content: startTime } }] },
+      "End Time":   { rich_text: [{ text: { content: endTime } }] },
+      "Color":      { rich_text: [{ text: { content: color } }] },
+    },
+  });
 }
-.skeleton {
-  background: linear-gradient(90deg, var(--surface2) 25%, var(--border) 50%, var(--surface2) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
-  border-radius: 4px;
+
+export async function removeTimeSlot(id: string) {
+  return notion.pages.update({ page_id: id, properties: { Active: { checkbox: false } } });
 }
-@keyframes shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+
+// ─── Shifts ───────────────────────────────────────────────────
+export async function getShifts(startDate: string, endDate: string) {
+  const res = await notion.databases.query({
+    database_id: SHIFTS_DB,
+    filter: {
+      and: [
+        { property: "Date", date: { on_or_after: startDate } },
+        { property: "Date", date: { on_or_before: endDate } },
+      ],
+    },
+  });
+  return res.results.map((p: any) => ({
+    id:         p.id,
+    date:       p.properties.Date?.date?.start ?? "",
+    employeeId: p.properties.Employee?.relation?.[0]?.id ?? "",
+    timeSlotId: p.properties["Time Slot"]?.relation?.[0]?.id ?? "",
+    role:       p.properties.Role?.select?.name ?? "Server",
+  }));
+}
+
+export async function createShift(
+  employeeId: string, employeeName: string,
+  date: string, timeSlotId: string, timeSlotLabel: string, role: string
+) {
+  return notion.pages.create({
+    parent: { database_id: SHIFTS_DB },
+    properties: {
+      Title:       { title: [{ text: { content: `${employeeName} — ${date}` } }] },
+      Employee:    { relation: [{ id: employeeId }] },
+      Date:        { date: { start: date } },
+      "Time Slot": { relation: [{ id: timeSlotId }] },
+      Role:        { select: { name: role } },
+    },
+  });
+}
+
+export async function updateShift(
+  id: string, employeeId: string, employeeName: string,
+  date: string, timeSlotId: string, timeSlotLabel: string, role: string
+) {
+  return notion.pages.update({
+    page_id: id,
+    properties: {
+      Title:       { title: [{ text: { content: `${employeeName} — ${date}` } }] },
+      Employee:    { relation: [{ id: employeeId }] },
+      Date:        { date: { start: date } },
+      "Time Slot": { relation: [{ id: timeSlotId }] },
+      Role:        { select: { name: role } },
+    },
+  });
+}
+
+export async function deleteShift(id: string) {
+  return notion.pages.update({ page_id: id, archived: true });
+}
+
+// Used for "undo delete" — re-activates an archived shift page.
+export async function restoreShift(id: string) {
+  return notion.pages.update({ page_id: id, archived: false });
+}
+
+// ─── Shift Templates ────────────────────────────────────────────
+// Each template stores a JSON blob of relative entries:
+// [{ dayOffset: 0-6 (Mon=0..Sun=6), employeeId, timeSlotId, role }]
+export async function getTemplates() {
+  const res = await notion.databases.query({
+    database_id: TEMPLATES_DB,
+    sorts: [{ property: "Name", direction: "ascending" }],
+  });
+  return res.results.map((p: any) => ({
+    id:   p.id,
+    name: p.properties.Name?.title?.[0]?.plain_text ?? "",
+    data: p.properties.Data?.rich_text?.[0]?.plain_text ?? "[]",
+  }));
+}
+
+export async function createTemplate(name: string, data: string) {
+  return notion.pages.create({
+    parent: { database_id: TEMPLATES_DB },
+    properties: {
+      Name: { title: [{ text: { content: name } }] },
+      Data: { rich_text: [{ text: { content: data } }] },
+    },
+  });
+}
+
+export async function deleteTemplate(id: string) {
+  return notion.pages.update({ page_id: id, archived: true });
 }
