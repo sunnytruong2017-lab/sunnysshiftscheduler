@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getShifts, createShift, updateShift, deleteShift, getEmployees, getTimeSlots } from "@/lib/notion";
+import { getShifts, createShift, updateShift, deleteShift, restoreShift, getEmployees, getTimeSlots } from "@/lib/notion";
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     const slotMap = Object.fromEntries(timeSlots.map(s  => [s.id, s]));
     return NextResponse.json(shifts.map(s => ({
       ...s,
-      employeeName:  empMap[s.employeeId]             ?? "Unknown",
+      employeeName:  empMap[s.employeeId]        ?? "Unknown",
       timeSlotLabel: slotMap[s.timeSlotId]?.label     ?? "",
       timeSlotStart: slotMap[s.timeSlotId]?.startTime ?? "",
       timeSlotEnd:   slotMap[s.timeSlotId]?.endTime   ?? "",
@@ -25,14 +25,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { employeeId, employeeName, date, timeSlotId, timeSlotLabel, role } = await req.json();
-    await createShift(employeeId, employeeName, date, timeSlotId, timeSlotLabel, role ?? "Server");
-    return NextResponse.json({ ok: true });
+    const page: any = await createShift(employeeId, employeeName, date, timeSlotId, timeSlotLabel, role ?? "Server");
+    return NextResponse.json({ ok: true, id: page?.id });
   } catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }); }
 }
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { id, employeeId, employeeName, date, timeSlotId, timeSlotLabel, role } = await req.json();
+    const body = await req.json();
+    if (body.action === "restore") {
+      await restoreShift(body.id);
+      return NextResponse.json({ ok: true });
+    }
+    const { id, employeeId, employeeName, date, timeSlotId, timeSlotLabel, role } = body;
     await updateShift(id, employeeId, employeeName, date, timeSlotId, timeSlotLabel, role ?? "Server");
     return NextResponse.json({ ok: true });
   } catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }); }
