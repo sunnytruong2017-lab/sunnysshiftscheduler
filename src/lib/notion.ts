@@ -5,7 +5,8 @@ export const notion = new Client({ auth: process.env.NOTION_TOKEN });
 export const EMPLOYEES_DB = process.env.NOTION_EMPLOYEES_DB!;
 export const TIMESLOTS_DB = process.env.NOTION_TIMESLOTS_DB!;
 export const SHIFTS_DB    = process.env.NOTION_SHIFTS_DB!;
-export const TEMPLATES_DB = process.env.NOTION_TEMPLATES_DB!;
+// Optional — only required if using the Shift Templates feature.
+export const TEMPLATES_DB = process.env.NOTION_TEMPLATES_DB ?? "";
 
 // ─── Employees ────────────────────────────────────────────────
 export async function getEmployees() {
@@ -139,31 +140,48 @@ export async function restoreShift(id: string) {
   return notion.pages.update({ page_id: id, archived: false });
 }
 
-// ─── Shift Templates ────────────────────────────────────────────
-// Each template stores a JSON blob of relative entries:
-// [{ dayOffset: 0-6 (Mon=0..Sun=6), employeeId, timeSlotId, role }]
+// ─── Shift Templates ─────────────────────────────────────────────────────────
+// Template data is stored as a paragraph block in the page body so we avoid
+// Notion's 2000-character limit on rich_text properties.
 export async function getTemplates() {
+  if (!TEMPLATES_DB) return [];
   const res = await notion.databases.query({
     database_id: TEMPLATES_DB,
     sorts: [{ property: "Name", direction: "ascending" }],
   });
-  return res.results.map((p: any) => ({
-    id:   p.id,
-    name: p.properties.Name?.title?.[0]?.plain_text ?? "",
-    data: p.properties.Data?.rich_text?.[0]?.plain_text ?? "[]",
+  const templates = await Promise.all(res.results.map(async (p: any) => {
+    const blocks = await notion.blocks.children.list({ block_id: p.id });
+    const dataBlock = blocks.results.find((b: any) => b.type === "paragraph") as any;
+    // Concatenate all rich_text pieces (handles chunked data)
+    const data = (dataBlock?.paragraph?.rich_text ?? [])
+      .map((t: any) => t.plain_text ?? "").join("") || "[]";
+    return { id: p.id, name: p.properties.Name?.title?.[0]?.plain_text ?? "", data };
   }));
+  return templates;
 }
 
 export async function createTemplate(name: string, data: string) {
+  if (!TEMPLATES_DB) throw new Error("NOTION_TEMPLATES_DB is not configured.");
+  // Chunk into ≤1900-char pieces to stay under Notion's 2000-char rich_text limit.
+  const chunks: { text: { content: string } }[] = [];
+  for (let i = 0; i < data.length; i += 1900) {
+    chunks.push({ text: { content: data.slice(i, i + 1900) } });
+  }
+  if (chunks.length === 0) chunks.push({ text: { content: "[]" } });
   return notion.pages.create({
     parent: { database_id: TEMPLATES_DB },
     properties: {
       Name: { title: [{ text: { content: name } }] },
-      Data: { rich_text: [{ text: { content: data } }] },
     },
+    children: [{
+      object: "block" as const,
+      type: "paragraph" as const,
+      paragraph: { rich_text: chunks },
+    }],
   });
 }
 
 export async function deleteTemplate(id: string) {
+  if (!TEMPLATES_DB) return;
   return notion.pages.update({ page_id: id, archived: true });
 }
