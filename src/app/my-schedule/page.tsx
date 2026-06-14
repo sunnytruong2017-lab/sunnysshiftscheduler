@@ -33,9 +33,12 @@ function ScheduleContent() {
   useEffect(() => {
     if (!employeeId) { setError("No employee specified."); return; }
     fetch(`/api/employee-schedule?id=${employeeId}`)
-      .then(r => r.json())
-      .then(d => { if (d.error) setError(d.error); else setData(d); })
-      .catch(() => setError("Failed to load schedule."));
+      .then(async r => {
+        const d = await r.json();
+        if (d.error) setError(`Error: ${d.error}`);
+        else setData(d);
+      })
+      .catch(err => setError(`Network error: ${err.message}`));
   }, [employeeId]);
 
   if (error) {
