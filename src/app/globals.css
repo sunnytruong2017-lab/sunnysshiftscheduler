@@ -97,9 +97,12 @@ body {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   background: none; border: none; cursor: pointer; color: var(--text-3);
   font-family: inherit; font-size: 10px; font-weight: 500; padding: 0 16px;
-  transition: color 0.15s;
+  transition: color 0.15s ease, transform 0.15s ease;
 }
+.mobile-nav-btn:hover { color: var(--text-2); transform: translateY(-2px); }
+.mobile-nav-btn:active { transform: scale(0.92); }
 .mobile-nav-btn.active { color: var(--accent); }
+.mobile-nav-btn.active:hover { color: var(--accent); }
 
 /* ── Mobile calendar ── */
 .mobile-cal-grid {
@@ -136,3 +139,12 @@ body {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* ── Desktop nav tab buttons ── */
+.nav-tab {
+  padding: 5px 12px; border-radius: 6px; border: none; cursor: pointer;
+  font-size: 13px; font-weight: 500; font-family: inherit;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.nav-tab:hover { background: var(--surface2) !important; }
+.nav-tab:active { transform: scale(0.96); }
