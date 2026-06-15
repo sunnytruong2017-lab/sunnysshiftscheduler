@@ -349,9 +349,45 @@ function useSchedulerData(startDate: string, endDate: string) {
     await fetchAll();
   };
 
+  // Delete all shifts on a given date. Returns them for undo.
+  const clearDay = async (date: string): Promise<Shift[]> => {
+    const toDelete = shifts.filter(s => s.date === date);
+    if (toDelete.length === 0) return [];
+    setShifts(ss => ss.filter(s => s.date !== date));
+    await Promise.all(toDelete.map(s =>
+      fetch("/api/shifts", { method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:s.id}) })
+    ));
+    invalidateOtherRanges();
+    await fetchAll();
+    return toDelete;
+  };
+
+  // Delete all shifts in the current loaded range. Returns them for undo.
+  const clearWeek = async (): Promise<Shift[]> => {
+    const toDelete = [...shifts];
+    if (toDelete.length === 0) return [];
+    setShifts([]);
+    await Promise.all(toDelete.map(s =>
+      fetch("/api/shifts", { method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:s.id}) })
+    ));
+    invalidateOtherRanges();
+    await fetchAll();
+    return toDelete;
+  };
+
+  // Restore multiple shifts at once (used for undo of clearDay/clearWeek).
+  const restoreShifts = async (restored: Shift[]) => {
+    setShifts(ss => sortShifts([...ss, ...restored], timeSlots));
+    await Promise.all(restored.map(s =>
+      fetch("/api/shifts", { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"restore", id:s.id}) })
+    ));
+    invalidateOtherRanges();
+    await fetchAll();
+  };
+
   const shiftsForDay = (day: Date) => shifts.filter(s=>s.date===format(day,"yyyy-MM-dd"));
 
-  return { employees, timeSlots, shifts, loading, initialLoading, fetchAll, addEmployee, removeEmployee, saveSlot, removeSlot, addShifts, addShiftBatch, updateShift, deleteShift, deleteShiftWithUndo, restoreDeletedShift, moveShift, shiftsForDay };
+  return { employees, timeSlots, shifts, loading, initialLoading, fetchAll, addEmployee, removeEmployee, saveSlot, removeSlot, addShifts, addShiftBatch, updateShift, deleteShift, deleteShiftWithUndo, restoreDeletedShift, restoreShifts, moveShift, clearDay, clearWeek, shiftsForDay };
 }
 
 // ─── Role column inside a day cell (used in side-by-side layout) ─
@@ -414,10 +450,10 @@ function RoleSplit({ servers, cooks, compact, skeleton, draggable, onDragStartSh
 
 // ─── Day detail panel (read-only summary) ─────────────────────
 function DayDetail({
-  day, shifts, isManager, onCreateShift, onEditShift, onDeleteShift, onClose,
+  day, shifts, isManager, onCreateShift, onEditShift, onDeleteShift, onClearDay, onClose,
 }: {
   day: Date; shifts: Shift[]; isManager: boolean;
-  onCreateShift: ()=>void; onEditShift: (s:Shift)=>void; onDeleteShift: (id:string)=>void; onClose: ()=>void;
+  onCreateShift: ()=>void; onEditShift: (s:Shift)=>void; onDeleteShift: (id:string)=>void; onClearDay: ()=>void; onClose: ()=>void;
 }) {
   const servers = shifts.filter(s=>s.role==="Server");
   const cooks   = shifts.filter(s=>s.role==="Cook");
@@ -430,6 +466,11 @@ function DayDetail({
           <div style={{fontSize:13,color:"var(--text-2)"}}>{format(day,"MMMM d, yyyy")}</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {isManager && shifts.length > 0 && (
+            <button onClick={onClearDay} style={{display:"flex",alignItems:"center",gap:5,padding:"7px 12px",borderRadius:8,border:"1px solid var(--danger)",background:"var(--danger-light)",color:"var(--danger)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s ease"}}>
+              <Icon.trash/> Clear Day
+            </button>
+          )}
           <button onClick={onCreateShift} className="btn-primary" style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
             <Icon.plus/> Create Shift
           </button>
@@ -484,12 +525,14 @@ function DayDetail({
 // ─── Shift form (create / edit) ───────────────────────────────
 function ShiftForm({
   employees, timeSlots, loading, initialShift, date,
-  onSave, onCancel,
+  onSave, onCancel, onClearDay, existingCount,
 }: {
   employees: Employee[]; timeSlots: TimeSlot[]; loading: boolean;
   initialShift?: Shift; date: string;
   onSave: (empIds:string[], slotId:string, role:string)=>void;
   onCancel: ()=>void;
+  onClearDay?: ()=>void;
+  existingCount?: number;
 }) {
   const [selEmps, setSelEmps] = useState<string[]>(initialShift?[initialShift.employeeId]:[]);
   const [selSlot, setSelSlot] = useState(initialShift?.timeSlotId??"");
@@ -497,7 +540,14 @@ function ShiftForm({
   const S = (active:boolean)=>({padding:"7px 12px",borderRadius:20,fontSize:12,fontWeight:500 as const,cursor:"pointer" as const,fontFamily:"inherit",border:`1.5px solid ${active?"var(--accent)":"var(--border)"}`,background:active?"var(--accent-light)":"var(--surface2)",color:active?"var(--accent)":"var(--text-2)",transition:"all 0.1s"});
   return (
     <div>
-      <div style={{fontSize:12,color:"var(--text-2)",marginBottom:6,fontWeight:600}}>Date: <span style={{color:"var(--text)"}}>{date}</span></div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{fontSize:12,color:"var(--text-2)",fontWeight:600}}>Date: <span style={{color:"var(--text)"}}>{date}</span></div>
+        {!initialShift && onClearDay && existingCount && existingCount > 0 ? (
+          <button onClick={onClearDay} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:7,border:"1px solid var(--danger)",background:"var(--danger-light)",color:"var(--danger)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s ease"}}>
+            <Icon.trash/> Clear Day ({existingCount})
+          </button>
+        ) : null}
+      </div>
 
       <div style={{marginBottom:14}}>
         <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.6px",marginBottom:8}}>Role</div>
@@ -641,8 +691,8 @@ function ExportModal({ employees, rangeStart, rangeEnd, onClose }: {
 }
 
 // ─── Calendar header nav ──────────────────────────────────────
-function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExport, onPrint, onTemplates, onCopyWeek, isMobile, isManager }:
-  { label:string; onPrev:()=>void; onNext:()=>void; onToday:()=>void; viewMode:ViewMode; setViewMode:(v:ViewMode)=>void; onExport:()=>void; onPrint:()=>void; onTemplates:()=>void; onCopyWeek:()=>void; isMobile:boolean; isManager:boolean }) {
+function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExport, onPrint, onTemplates, onCopyWeek, onClearWeek, isMobile, isManager }:
+  { label:string; onPrev:()=>void; onNext:()=>void; onToday:()=>void; viewMode:ViewMode; setViewMode:(v:ViewMode)=>void; onExport:()=>void; onPrint:()=>void; onTemplates:()=>void; onCopyWeek:()=>void; onClearWeek:()=>void; isMobile:boolean; isManager:boolean }) {
   return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -664,6 +714,9 @@ function CalNav({ label, onPrev, onNext, onToday, viewMode, setViewMode, onExpor
         )}
         {isManager && viewMode==="week" && (
           <button onClick={onTemplates} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Shift templates"><Icon.template/></button>
+        )}
+        {isManager && viewMode==="week" && (
+          <button onClick={onClearWeek} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--danger)",background:"var(--danger-light)",color:"var(--danger)",cursor:"pointer"}} title="Clear this week"><Icon.trash/></button>
         )}
         <button onClick={onPrint} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Print"><Icon.print/></button>
         <button onClick={onExport} style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",cursor:"pointer"}} title="Export"><Icon.download/></button>
@@ -1031,8 +1084,8 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
           <span style={{fontSize:15,fontWeight:600,letterSpacing:"-0.3px"}}>Shift Scheduler</span>
           <nav style={{display:"flex",gap:2}}>
             {(["calendar","employees","timeslots"] as const).map(t=>(
-              <button key={t} onClick={()=>{if(t!=="calendar")requireManager(()=>setTab(t));else setTab(t);}}
-                style={{padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:13,fontWeight:500,background:tab===t?"var(--surface2)":"transparent",color:tab===t?"var(--text)":"var(--text-2)",fontFamily:"inherit"}}>
+              <button key={t} className="nav-tab" onClick={()=>{if(t!=="calendar")requireManager(()=>setTab(t));else setTab(t);}}
+                style={{background:tab===t?"var(--surface2)":"transparent",color:tab===t?"var(--text)":"var(--text-2)"}}>
                 {t==="calendar"?"Calendar":t==="employees"?"Employees":"Time Slots"}
               </button>
             ))}
@@ -1069,6 +1122,13 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
                 onExport={()=>setShowExport(true)} onPrint={handlePrint}
                 onTemplates={()=>requireManager(()=>setShowTemplates(true))}
                 onCopyWeek={handleCopyPreviousWeek}
+                onClearWeek={()=>{
+                  if (data.shifts.length===0) return;
+                  if (!confirm(`Clear all ${data.shifts.length} shift${data.shifts.length!==1?"s":""} this week?`)) return;
+                  data.clearWeek().then(removed=>{
+                    if (removed.length>0) setToast({message:`Cleared ${removed.length} shift${removed.length!==1?"s":""}.`, actionLabel:"Undo", onAction:()=>data.restoreShifts(removed)});
+                  });
+                }}
                 isMobile={false} isManager={isManager}/>
 
               {/* Day headers — month view only (week cells render their own labels) */}
@@ -1107,6 +1167,13 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
                       const removed = await data.deleteShiftWithUndo(id);
                       if (removed) setToast({message:`Shift deleted.`, actionLabel:"Undo", onAction:()=>data.restoreDeletedShift(removed)});
                     }}
+                    onClearDay={()=>{
+                      if (!confirm(`Clear all ${data.shiftsForDay(selectedDay).length} shift${data.shiftsForDay(selectedDay).length!==1?"s":""}  on ${format(selectedDay,"MMMM d")}?`)) return;
+                      const dateStr = format(selectedDay,"yyyy-MM-dd");
+                      data.clearDay(dateStr).then(removed=>{
+                        if (removed.length>0) setToast({message:`Cleared ${removed.length} shift${removed.length!==1?"s":""}.`, actionLabel:"Undo", onAction:()=>data.restoreShifts(removed)});
+                      });
+                    }}
                     onClose={()=>setSelectedDay(null)}
                   />
                 )}
@@ -1120,6 +1187,14 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
                       employees={data.employees} timeSlots={data.timeSlots} loading={data.loading}
                       initialShift={panelMode==="edit"?editingShift??undefined:undefined}
                       date={format(selectedDay,"yyyy-MM-dd")}
+                      existingCount={data.shiftsForDay(selectedDay).length}
+                      onClearDay={panelMode==="create"?()=>{
+                        const dayShifts = data.shiftsForDay(selectedDay);
+                        if (!confirm(`Clear all ${dayShifts.length} shift${dayShifts.length!==1?"s":""} on ${format(selectedDay,"MMMM d")}?`)) return;
+                        data.clearDay(format(selectedDay,"yyyy-MM-dd")).then(removed=>{
+                          if (removed.length>0) setToast({message:`Cleared ${removed.length} shift${removed.length!==1?"s":""}.`, actionLabel:"Undo", onAction:()=>data.restoreShifts(removed)});
+                        });
+                      }:undefined}
                       onSave={async(empIds,slotId,role)=>{
                         if(panelMode==="edit"&&editingShift) await data.updateShift(editingShift.id,empIds[0],editingShift.date,slotId,role);
                         else await data.addShifts(empIds,format(selectedDay,"yyyy-MM-dd"),slotId,role);
@@ -1410,6 +1485,13 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
             onExport={()=>setShowExport(true)} onPrint={()=>window.print()}
             onTemplates={()=>requireManager(()=>setShowTemplates(true))}
             onCopyWeek={handleCopyPreviousWeek}
+            onClearWeek={()=>{
+              if (data.shifts.length===0) return;
+              if (!confirm(`Clear all ${data.shifts.length} shift${data.shifts.length!==1?"s":""} this week?`)) return;
+              data.clearWeek().then(removed=>{
+                if (removed.length>0) setToast({message:`Cleared ${removed.length} shift${removed.length!==1?"s":""}.`, actionLabel:"Undo", onAction:()=>data.restoreShifts(removed)});
+              });
+            }}
             isMobile={true} isManager={isManager}/>
           <div key={anchor.toString()+viewMode} className="cal-fade" style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
 
@@ -1596,6 +1678,14 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
                   const removed = await data.deleteShiftWithUndo(id);
                   if(removed) setToast({message:"Shift deleted.",actionLabel:"Undo",onAction:()=>data.restoreDeletedShift(removed)});
                 }}
+                onClearDay={()=>{
+                  const dayShifts = data.shiftsForDay(selectedDay);
+                  if (!confirm(`Clear all ${dayShifts.length} shift${dayShifts.length!==1?"s":""} on ${format(selectedDay,"MMMM d")}?`)) return;
+                  data.clearDay(format(selectedDay,"yyyy-MM-dd")).then(removed=>{
+                    if(removed.length>0) setToast({message:`Cleared ${removed.length} shift${removed.length!==1?"s":""}.`,actionLabel:"Undo",onAction:()=>data.restoreShifts(removed)});
+                    closeSheet();
+                  });
+                }}
                 onClose={closeSheet}
               />
             </div>
@@ -1612,6 +1702,14 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
               <div style={{fontSize:16,fontWeight:700,marginBottom:16}}>Create Shift</div>
               <ShiftForm employees={data.employees} timeSlots={data.timeSlots} loading={data.loading}
                 date={format(selectedDay,"yyyy-MM-dd")}
+                existingCount={data.shiftsForDay(selectedDay).length}
+                onClearDay={()=>{
+                  const dayShifts = data.shiftsForDay(selectedDay);
+                  if (!confirm(`Clear all ${dayShifts.length} shift${dayShifts.length!==1?"s":""} on ${format(selectedDay,"MMMM d")}?`)) return;
+                  data.clearDay(format(selectedDay,"yyyy-MM-dd")).then(removed=>{
+                    if(removed.length>0) setToast({message:`Cleared ${removed.length} shift${removed.length!==1?"s":""}.`,actionLabel:"Undo",onAction:()=>data.restoreShifts(removed)});
+                  });
+                }}
                 onSave={async(empIds,slotId,role)=>{await data.addShifts(empIds,format(selectedDay,"yyyy-MM-dd"),slotId,role);setSheet("day");}}
                 onCancel={()=>setSheet("day")}/>
             </div>
