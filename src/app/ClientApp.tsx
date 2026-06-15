@@ -353,12 +353,23 @@ function useSchedulerData(startDate: string, endDate: string) {
   const clearDay = async (date: string): Promise<Shift[]> => {
     const toDelete = shifts.filter(s => s.date === date);
     if (toDelete.length === 0) return [];
+    // Optimistic update first
     setShifts(ss => ss.filter(s => s.date !== date));
+    // Update cache immediately so navigating away and back shows empty
+    const key = `${startDate}_${endDate}`;
+    const cached = dataCache.get(key);
+    if (cached) {
+      const updated = { ...cached, shifts: cached.shifts.filter(s => s.date !== date) };
+      dataCache.set(key, updated);
+    }
+    // Fire deletes and wait — don't fetchAll after (avoids race where Notion
+    // hasn't finished archiving before the re-fetch runs)
     await Promise.all(toDelete.map(s =>
       fetch("/api/shifts", { method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:s.id}) })
     ));
     invalidateOtherRanges();
-    await fetchAll();
+    // Delayed re-fetch to reconcile after Notion finishes archiving
+    setTimeout(() => fetchAll(true), 2000);
     return toDelete;
   };
 
@@ -366,23 +377,34 @@ function useSchedulerData(startDate: string, endDate: string) {
   const clearWeek = async (): Promise<Shift[]> => {
     const toDelete = [...shifts];
     if (toDelete.length === 0) return [];
+    // Optimistic: clear state and cache immediately
     setShifts([]);
+    const key = `${startDate}_${endDate}`;
+    if (dataCache.has(key)) {
+      const cached = dataCache.get(key)!;
+      dataCache.set(key, { ...cached, shifts: [] });
+    }
     await Promise.all(toDelete.map(s =>
       fetch("/api/shifts", { method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:s.id}) })
     ));
     invalidateOtherRanges();
-    await fetchAll();
+    setTimeout(() => fetchAll(true), 2000);
     return toDelete;
   };
 
   // Restore multiple shifts at once (used for undo of clearDay/clearWeek).
   const restoreShifts = async (restored: Shift[]) => {
     setShifts(ss => sortShifts([...ss, ...restored], timeSlots));
+    const key = `${startDate}_${endDate}`;
+    const cached = dataCache.get(key);
+    if (cached) {
+      dataCache.set(key, { ...cached, shifts: sortShifts([...cached.shifts, ...restored], timeSlots) });
+    }
     await Promise.all(restored.map(s =>
       fetch("/api/shifts", { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"restore", id:s.id}) })
     ));
     invalidateOtherRanges();
-    await fetchAll();
+    setTimeout(() => fetchAll(true), 2000);
   };
 
   const shiftsForDay = (day: Date) => shifts.filter(s=>s.date===format(day,"yyyy-MM-dd"));
@@ -460,21 +482,23 @@ function DayDetail({
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:16}}>
         <div>
           <div style={{fontSize:18,fontWeight:700,letterSpacing:"-0.4px"}}>{format(day,"EEEE")}</div>
           <div style={{fontSize:13,color:"var(--text-2)"}}>{format(day,"MMMM d, yyyy")}</div>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:10}}>
           {isManager && shifts.length > 0 && (
-            <button onClick={onClearDay} style={{display:"flex",alignItems:"center",gap:5,padding:"7px 12px",borderRadius:8,border:"1px solid var(--danger)",background:"var(--danger-light)",color:"var(--danger)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s ease"}}>
-              <Icon.trash/> Clear Day
+            <button onClick={onClearDay} title="Clear all shifts this day"
+              style={{width:30,height:30,borderRadius:8,border:"1px solid var(--danger)",background:"var(--danger-light)",color:"var(--danger)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.15s ease"}}>
+              <Icon.trash/>
             </button>
           )}
-          <button onClick={onCreateShift} className="btn-primary" style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+          <button onClick={onCreateShift} className="btn-primary"
+            style={{display:"flex",alignItems:"center",gap:5,padding:"6px 11px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
             <Icon.plus/> Create Shift
           </button>
-          <button className="icon-btn" onClick={onClose}><Icon.x/></button>
+          <button className="icon-btn" onClick={onClose} style={{flexShrink:0}}><Icon.x/></button>
         </div>
       </div>
 
