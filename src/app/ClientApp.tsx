@@ -806,8 +806,12 @@ function ShareModal({ employees, onClose }: { employees: Employee[]; onClose: ()
                   <input readOnly value={link} onClick={e=>(e.target as HTMLInputElement).select()}
                     style={{flex:1,padding:"8px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text)",fontSize:11,fontFamily:"monospace",outline:"none"}}/>
                   <button onClick={()=>navigator.clipboard.writeText(link)} className="btn-primary"
-                    style={{padding:"8px 14px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+                    style={{padding:"8px 14px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontFamily:"inherit"}}>
                     <Icon.copy/> Copy
+                  </button>
+                  <button onClick={()=>window.open(link,"_blank")}
+                    style={{padding:"8px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text-2)",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                    <Icon.link/> Open
                   </button>
                 </div>
                 <p style={{fontSize:11,color:"var(--text-3)",margin:"8px 0 0",lineHeight:1.5}}>
