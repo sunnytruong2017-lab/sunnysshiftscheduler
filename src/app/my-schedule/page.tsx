@@ -68,10 +68,15 @@ function ScheduleContent() {
 
   return (
     <div style={{minHeight:"100vh",background:"var(--bg)",color:"var(--text)",fontFamily:"'DM Sans',sans-serif"}}>
-      <header style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div>
-          <div style={{fontSize:13,color:"var(--text-2)",fontWeight:500}}>Schedule for</div>
-          <div style={{fontSize:20,fontWeight:700,letterSpacing:"-0.3px"}}>{data.employee.name}</div>
+      <header style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <a href="/" style={{width:34,height:34,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text-2)",display:"flex",alignItems:"center",justifyContent:"center",textDecoration:"none",flexShrink:0}}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15,18 9,12 15,6"/></svg>
+          </a>
+          <div>
+            <div style={{fontSize:12,color:"var(--text-2)",fontWeight:500}}>Schedule for</div>
+            <div style={{fontSize:18,fontWeight:700,letterSpacing:"-0.3px"}}>{data.employee.name}</div>
+          </div>
         </div>
         <button onClick={()=>{
           const v = !dark;
