@@ -1116,9 +1116,6 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
           </nav>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={()=>setShowShare(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"inherit"}}>
-            <Icon.qr/> Share
-          </button>
           {isManager ? (
             <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:20,background:"var(--accent-light)",color:"var(--accent)",fontSize:11,fontWeight:600}}>
               <Icon.unlock/> Manager
@@ -1129,6 +1126,9 @@ function DesktopApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void
               <Icon.lock/> Manager
             </button>
           )}
+          <button onClick={()=>setShowShare(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text-2)",fontSize:12,fontWeight:500,cursor:"pointer",fontFamily:"inherit"}}>
+            <Icon.qr/> Share
+          </button>
           <button onClick={()=>setDark(!dark)} style={{width:32,height:32,borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-2)",overflow:"hidden"}}>
             <span key={dark?"sun":"moon"} className="theme-icon-spin">{dark?<Icon.sun/>:<Icon.moon/>}</span>
           </button>
@@ -1481,9 +1481,6 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
           {tab==="calendar"?nav.label:tab==="employees"?"Employees":"Time Slots"}
         </span>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <button onClick={()=>setShowShare(true)} style={{width:34,height:34,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-2)"}}>
-            <Icon.qr/>
-          </button>
           {isManager ? (
             <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,background:"var(--accent-light)",color:"var(--accent)",fontSize:11,fontWeight:600}}>
               <Icon.unlock/> Mgr
@@ -1494,6 +1491,9 @@ function MobileApp({ dark, setDark }: { dark:boolean; setDark:(v:boolean)=>void 
               <Icon.lock/>
             </button>
           )}
+          <button onClick={()=>setShowShare(true)} style={{width:34,height:34,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-2)"}}>
+            <Icon.qr/>
+          </button>
           <button onClick={()=>setDark(!dark)} style={{width:34,height:34,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-2)",overflow:"hidden"}}>
             <span key={dark?"sun":"moon"} className="theme-icon-spin">{dark?<Icon.sun/>:<Icon.moon/>}</span>
           </button>
