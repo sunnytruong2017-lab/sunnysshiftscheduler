@@ -15,6 +15,9 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+const SunIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>;
+const MoonIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>;
+
 function ScheduleContent() {
   const params = useSearchParams();
   const employeeId = params.get("id") || "";
@@ -75,8 +78,8 @@ function ScheduleContent() {
           setDark(v);
           localStorage.setItem("shift-dark-mode", String(v));
           document.documentElement.classList.toggle("dark", v);
-        }} style={{width:36,height:36,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",color:"var(--text-2)"}}>
-          {dark ? "☀️" : "🌙"}
+        }} style={{width:36,height:36,borderRadius:10,border:"1px solid var(--border)",background:"var(--surface2)",cursor:"pointer",color:"var(--text-2)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {dark ? <SunIcon/> : <MoonIcon/>}
         </button>
       </header>
 
